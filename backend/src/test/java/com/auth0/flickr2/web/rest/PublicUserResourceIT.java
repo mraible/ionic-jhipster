@@ -1,30 +1,29 @@
 package com.auth0.flickr2.web.rest;
 
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.hasItems;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.csrf;
 
 import com.auth0.flickr2.IntegrationTest;
+import com.auth0.flickr2.config.Constants;
 import com.auth0.flickr2.config.TestSecurityConfiguration;
 import com.auth0.flickr2.domain.User;
+import com.auth0.flickr2.repository.EntityManager;
 import com.auth0.flickr2.repository.UserRepository;
 import com.auth0.flickr2.security.AuthoritiesConstants;
-import javax.persistence.EntityManager;
+import com.auth0.flickr2.service.dto.UserDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.cache.CacheManager;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
  * Integration tests for the {@link UserResource} REST controller.
  */
-@AutoConfigureMockMvc
+@AutoConfigureWebTestClient(timeout = IntegrationTest.DEFAULT_TIMEOUT)
 @WithMockUser(authorities = AuthoritiesConstants.ADMIN)
 @IntegrationTest
 class PublicUserResourceIT {
@@ -41,7 +40,7 @@ class PublicUserResourceIT {
     private CacheManager cacheManager;
 
     @Autowired
-    private MockMvc restUserMockMvc;
+    private WebTestClient webTestClient;
 
     private User user;
 
@@ -52,35 +51,54 @@ class PublicUserResourceIT {
     }
 
     @BeforeEach
+    public void setupCsrf() {
+        webTestClient = webTestClient.mutateWith(csrf());
+    }
+
+    @BeforeEach
     public void initTest() {
         user = UserResourceIT.initTestUser(userRepository, em);
     }
 
     @Test
-    @Transactional
-    void getAllPublicUsers() throws Exception {
+    void getAllPublicUsers() {
         // Initialize the database
-        userRepository.saveAndFlush(user);
+        userRepository.create(user).block();
 
         // Get all the users
-        restUserMockMvc
-            .perform(get("/api/users?sort=id,desc").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].login").value(hasItem(DEFAULT_LOGIN)))
-            .andExpect(jsonPath("$.[*].email").doesNotExist())
-            .andExpect(jsonPath("$.[*].imageUrl").doesNotExist())
-            .andExpect(jsonPath("$.[*].langKey").doesNotExist());
+        UserDTO foundUser = webTestClient
+            .get()
+            .uri("/api/users?sort=id,DESC")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .contentType(MediaType.APPLICATION_JSON)
+            .returnResult(UserDTO.class)
+            .getResponseBody()
+            .blockFirst();
+
+        assertThat(foundUser.getLogin()).isEqualTo(DEFAULT_LOGIN);
     }
 
     @Test
-    @Transactional
-    void getAllAuthorities() throws Exception {
-        restUserMockMvc
-            .perform(get("/api/authorities").accept(MediaType.APPLICATION_JSON).contentType(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$").isArray())
-            .andExpect(jsonPath("$").value(hasItems(AuthoritiesConstants.USER, AuthoritiesConstants.ADMIN)));
+    void getAllAuthorities() {
+        webTestClient
+            .get()
+            .uri("/api/authorities")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .contentType(MediaType.APPLICATION_JSON_VALUE)
+            .expectBody()
+            .jsonPath("$")
+            .isArray()
+            .jsonPath("$[?(@=='" + AuthoritiesConstants.ADMIN + "')]")
+            .hasJsonPath()
+            .jsonPath("$[?(@=='" + AuthoritiesConstants.USER + "')]")
+            .hasJsonPath();
     }
 }

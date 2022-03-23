@@ -7,7 +7,7 @@ services:
       - _JAVA_OPTIONS=-Xmx512m -Xms256m
       - SPRING_PROFILES_ACTIVE=prod,api-docs
       - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://flickr2-postgresql:5432/flickr2
+      - SPRING_R2DBC_URL=r2dbc:postgresql://flickr2-postgresql:5432/flickr2
       - SPRING_LIQUIBASE_URL=jdbc:postgresql://flickr2-postgresql:5432/flickr2
       - SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_ISSUER_URI=http://keycloak:9080/auth/realms/jhipster
       - SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_ID=web_app
@@ -18,7 +18,7 @@ services:
     ports:
       - 127.0.0.1:8080:8080
   flickr2-postgresql:
-    image: postgres:13.5
+    image: postgres:14.2
     # volumes:
     #   - ~/volumes/jhipster/flickr2/postgresql/:/var/lib/postgresql/data/
     environment:
@@ -30,7 +30,7 @@ services:
     ports:
       - 127.0.0.1:5432:5432
   keycloak:
-    image: jboss/keycloak:15.0.2
+    image: jboss/keycloak:16.1.0
     command:
       [
         '-b',

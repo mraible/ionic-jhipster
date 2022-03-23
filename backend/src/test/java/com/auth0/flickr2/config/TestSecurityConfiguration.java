@@ -7,14 +7,14 @@ import java.util.Map;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.security.oauth2.client.InMemoryOAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.InMemoryReactiveOAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.ReactiveOAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
+import org.springframework.security.oauth2.client.registration.InMemoryReactiveClientRegistrationRepository;
+import org.springframework.security.oauth2.client.registration.ReactiveClientRegistrationRepository;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 
 /**
  * This class allows you to run unit and integration tests without an IdP.
@@ -29,8 +29,8 @@ public class TestSecurityConfiguration {
     }
 
     @Bean
-    ClientRegistrationRepository clientRegistrationRepository(ClientRegistration clientRegistration) {
-        return new InMemoryClientRegistrationRepository(clientRegistration);
+    ReactiveClientRegistrationRepository clientRegistrationRepository(ClientRegistration clientRegistration) {
+        return new InMemoryReactiveClientRegistrationRepository(clientRegistration);
     }
 
     private ClientRegistration.Builder clientRegistrationBuilder() {
@@ -41,7 +41,7 @@ public class TestSecurityConfiguration {
             .withRegistrationId("oidc")
             .issuerUri("{baseUrl}")
             .redirectUri("{baseUrl}/{action}/oauth2/code/{registrationId}")
-            .clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+            .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
             .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
             .scope("read:user")
             .authorizationUri("https://jhipster.org/login/oauth/authorize")
@@ -56,12 +56,12 @@ public class TestSecurityConfiguration {
     }
 
     @Bean
-    JwtDecoder jwtDecoder() {
-        return mock(JwtDecoder.class);
+    ReactiveJwtDecoder jwtDecoder() {
+        return mock(ReactiveJwtDecoder.class);
     }
 
     @Bean
-    OAuth2AuthorizedClientService authorizedClientService(ClientRegistrationRepository clientRegistrationRepository) {
-        return new InMemoryOAuth2AuthorizedClientService(clientRegistrationRepository);
+    ReactiveOAuth2AuthorizedClientService authorizedClientService(ReactiveClientRegistrationRepository clientRegistrationRepository) {
+        return new InMemoryReactiveOAuth2AuthorizedClientService(clientRegistrationRepository);
     }
 }

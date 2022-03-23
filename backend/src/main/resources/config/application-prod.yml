@@ -31,22 +31,22 @@ spring:
       enabled: false
     livereload:
       enabled: false
-  datasource:
-    type: com.zaxxer.hikari.HikariDataSource
-    url: jdbc:postgresql://localhost:5432/flickr2
-    username: flickr2
-    password:
-    hikari:
-      poolName: Hikari
-      auto-commit: false
-  jpa:
-    database-platform: tech.jhipster.domain.util.FixedPostgreSQL10Dialect
   # Replace by 'prod, faker' to add the faker context and have sample data loaded in production
   liquibase:
     contexts: prod
+    url: jdbc:postgresql://localhost:5432/flickr2
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/flickr2
+    username: flickr2
+    password:
   thymeleaf:
     cache: true
   sleuth:
+    # https://github.com/spring-projects/spring-framework/issues/27844#issuescomment-1002866885
+    # https://github.com/spring-cloud/spring-cloud-sleuth/issues/2094
+    async:
+      enabled: false
+    enabled: false
     sampler:
       probability: 1 # report 100% of traces
   zipkin: # Use the "zipkin" Maven profile to have the Spring Cloud Zipkin dependencies

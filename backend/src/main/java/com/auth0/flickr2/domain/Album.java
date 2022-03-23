@@ -2,42 +2,39 @@ package com.auth0.flickr2.domain;
 
 import java.io.Serializable;
 import java.time.Instant;
-import javax.persistence.*;
 import javax.validation.constraints.*;
-import org.hibernate.annotations.Cache;
-import org.hibernate.annotations.CacheConcurrencyStrategy;
-import org.hibernate.annotations.Type;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
 /**
  * A Album.
  */
-@Entity
-@Table(name = "album")
-@Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+@Table("album")
 public class Album implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "sequenceGenerator")
-    @SequenceGenerator(name = "sequenceGenerator")
-    @Column(name = "id")
+    @Column("id")
     private Long id;
 
-    @NotNull
-    @Column(name = "title", nullable = false)
+    @NotNull(message = "must not be null")
+    @Column("title")
     private String title;
 
-    @Lob
-    @Type(type = "org.hibernate.type.TextType")
-    @Column(name = "description")
+    @Column("description")
     private String description;
 
-    @Column(name = "created")
+    @Column("created")
     private Instant created;
 
-    @ManyToOne
+    @Transient
     private User user;
+
+    @Column("user_id")
+    private String userId;
 
     // jhipster-needle-entity-add-field - JHipster will add fields here
 
@@ -99,11 +96,20 @@ public class Album implements Serializable {
 
     public void setUser(User user) {
         this.user = user;
+        this.userId = user != null ? user.getId() : null;
     }
 
     public Album user(User user) {
         this.setUser(user);
         return this;
+    }
+
+    public String getUserId() {
+        return this.userId;
+    }
+
+    public void setUserId(String user) {
+        this.userId = user;
     }
 
     // jhipster-needle-entity-add-getters-setters - JHipster will add getters and setters here

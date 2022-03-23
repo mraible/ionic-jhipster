@@ -2,42 +2,44 @@ package com.auth0.flickr2.web.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.is;
 import static org.mockito.Mockito.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.csrf;
 
 import com.auth0.flickr2.IntegrationTest;
 import com.auth0.flickr2.domain.Photo;
+import com.auth0.flickr2.repository.EntityManager;
 import com.auth0.flickr2.repository.PhotoRepository;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
-import javax.persistence.EntityManager;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.util.Base64Utils;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
  * Integration tests for the {@link PhotoResource} REST controller.
  */
 @IntegrationTest
 @ExtendWith(MockitoExtension.class)
-@AutoConfigureMockMvc
+@AutoConfigureWebTestClient(timeout = IntegrationTest.DEFAULT_ENTITY_TIMEOUT)
 @WithMockUser
 class PhotoResourceIT {
 
@@ -80,7 +82,7 @@ class PhotoResourceIT {
     private EntityManager em;
 
     @Autowired
-    private MockMvc restPhotoMockMvc;
+    private WebTestClient webTestClient;
 
     private Photo photo;
 
@@ -122,24 +124,46 @@ class PhotoResourceIT {
         return photo;
     }
 
+    public static void deleteEntities(EntityManager em) {
+        try {
+            em.deleteAll("rel_photo__tag").block();
+            em.deleteAll(Photo.class).block();
+        } catch (Exception e) {
+            // It can fail, if other entities are still referring this - it will be removed later.
+        }
+    }
+
+    @AfterEach
+    public void cleanup() {
+        deleteEntities(em);
+    }
+
+    @BeforeEach
+    public void setupCsrf() {
+        webTestClient = webTestClient.mutateWith(csrf());
+    }
+
     @BeforeEach
     public void initTest() {
+        deleteEntities(em);
         photo = createEntity(em);
     }
 
     @Test
-    @Transactional
     void createPhoto() throws Exception {
-        int databaseSizeBeforeCreate = photoRepository.findAll().size();
+        int databaseSizeBeforeCreate = photoRepository.findAll().collectList().block().size();
         // Create the Photo
-        restPhotoMockMvc
-            .perform(
-                post(ENTITY_API_URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(photo))
-            )
-            .andExpect(status().isCreated());
+        webTestClient
+            .post()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(photo))
+            .exchange()
+            .expectStatus()
+            .isCreated();
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeCreate + 1);
         Photo testPhoto = photoList.get(photoList.size() - 1);
         assertThat(testPhoto.getTitle()).isEqualTo(DEFAULT_TITLE);
@@ -153,125 +177,159 @@ class PhotoResourceIT {
     }
 
     @Test
-    @Transactional
     void createPhotoWithExistingId() throws Exception {
         // Create the Photo with an existing ID
         photo.setId(1L);
 
-        int databaseSizeBeforeCreate = photoRepository.findAll().size();
+        int databaseSizeBeforeCreate = photoRepository.findAll().collectList().block().size();
 
         // An entity with an existing ID cannot be created, so this API call must fail
-        restPhotoMockMvc
-            .perform(
-                post(ENTITY_API_URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(photo))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .post()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(photo))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeCreate);
     }
 
     @Test
-    @Transactional
     void checkTitleIsRequired() throws Exception {
-        int databaseSizeBeforeTest = photoRepository.findAll().size();
+        int databaseSizeBeforeTest = photoRepository.findAll().collectList().block().size();
         // set the field null
         photo.setTitle(null);
 
         // Create the Photo, which fails.
 
-        restPhotoMockMvc
-            .perform(
-                post(ENTITY_API_URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(photo))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .post()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(photo))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeTest);
     }
 
     @Test
-    @Transactional
-    void getAllPhotos() throws Exception {
+    void getAllPhotos() {
         // Initialize the database
-        photoRepository.saveAndFlush(photo);
+        photoRepository.save(photo).block();
 
         // Get all the photoList
-        restPhotoMockMvc
-            .perform(get(ENTITY_API_URL + "?sort=id,desc"))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(photo.getId().intValue())))
-            .andExpect(jsonPath("$.[*].title").value(hasItem(DEFAULT_TITLE)))
-            .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION.toString())))
-            .andExpect(jsonPath("$.[*].imageContentType").value(hasItem(DEFAULT_IMAGE_CONTENT_TYPE)))
-            .andExpect(jsonPath("$.[*].image").value(hasItem(Base64Utils.encodeToString(DEFAULT_IMAGE))))
-            .andExpect(jsonPath("$.[*].height").value(hasItem(DEFAULT_HEIGHT)))
-            .andExpect(jsonPath("$.[*].width").value(hasItem(DEFAULT_WIDTH)))
-            .andExpect(jsonPath("$.[*].taken").value(hasItem(DEFAULT_TAKEN.toString())))
-            .andExpect(jsonPath("$.[*].uploaded").value(hasItem(DEFAULT_UPLOADED.toString())));
+        webTestClient
+            .get()
+            .uri(ENTITY_API_URL + "?sort=id,desc")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .contentType(MediaType.APPLICATION_JSON)
+            .expectBody()
+            .jsonPath("$.[*].id")
+            .value(hasItem(photo.getId().intValue()))
+            .jsonPath("$.[*].title")
+            .value(hasItem(DEFAULT_TITLE))
+            .jsonPath("$.[*].description")
+            .value(hasItem(DEFAULT_DESCRIPTION.toString()))
+            .jsonPath("$.[*].imageContentType")
+            .value(hasItem(DEFAULT_IMAGE_CONTENT_TYPE))
+            .jsonPath("$.[*].image")
+            .value(hasItem(Base64Utils.encodeToString(DEFAULT_IMAGE)))
+            .jsonPath("$.[*].height")
+            .value(hasItem(DEFAULT_HEIGHT))
+            .jsonPath("$.[*].width")
+            .value(hasItem(DEFAULT_WIDTH))
+            .jsonPath("$.[*].taken")
+            .value(hasItem(DEFAULT_TAKEN.toString()))
+            .jsonPath("$.[*].uploaded")
+            .value(hasItem(DEFAULT_UPLOADED.toString()));
     }
 
     @SuppressWarnings({ "unchecked" })
-    void getAllPhotosWithEagerRelationshipsIsEnabled() throws Exception {
-        when(photoRepositoryMock.findAllWithEagerRelationships(any())).thenReturn(new PageImpl(new ArrayList<>()));
+    void getAllPhotosWithEagerRelationshipsIsEnabled() {
+        when(photoRepositoryMock.findAllWithEagerRelationships(any())).thenReturn(Flux.empty());
 
-        restPhotoMockMvc.perform(get(ENTITY_API_URL + "?eagerload=true")).andExpect(status().isOk());
+        webTestClient.get().uri(ENTITY_API_URL + "?eagerload=true").exchange().expectStatus().isOk();
 
         verify(photoRepositoryMock, times(1)).findAllWithEagerRelationships(any());
     }
 
     @SuppressWarnings({ "unchecked" })
-    void getAllPhotosWithEagerRelationshipsIsNotEnabled() throws Exception {
-        when(photoRepositoryMock.findAllWithEagerRelationships(any())).thenReturn(new PageImpl(new ArrayList<>()));
+    void getAllPhotosWithEagerRelationshipsIsNotEnabled() {
+        when(photoRepositoryMock.findAllWithEagerRelationships(any())).thenReturn(Flux.empty());
 
-        restPhotoMockMvc.perform(get(ENTITY_API_URL + "?eagerload=true")).andExpect(status().isOk());
+        webTestClient.get().uri(ENTITY_API_URL + "?eagerload=true").exchange().expectStatus().isOk();
 
         verify(photoRepositoryMock, times(1)).findAllWithEagerRelationships(any());
     }
 
     @Test
-    @Transactional
-    void getPhoto() throws Exception {
+    void getPhoto() {
         // Initialize the database
-        photoRepository.saveAndFlush(photo);
+        photoRepository.save(photo).block();
 
         // Get the photo
-        restPhotoMockMvc
-            .perform(get(ENTITY_API_URL_ID, photo.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.id").value(photo.getId().intValue()))
-            .andExpect(jsonPath("$.title").value(DEFAULT_TITLE))
-            .andExpect(jsonPath("$.description").value(DEFAULT_DESCRIPTION.toString()))
-            .andExpect(jsonPath("$.imageContentType").value(DEFAULT_IMAGE_CONTENT_TYPE))
-            .andExpect(jsonPath("$.image").value(Base64Utils.encodeToString(DEFAULT_IMAGE)))
-            .andExpect(jsonPath("$.height").value(DEFAULT_HEIGHT))
-            .andExpect(jsonPath("$.width").value(DEFAULT_WIDTH))
-            .andExpect(jsonPath("$.taken").value(DEFAULT_TAKEN.toString()))
-            .andExpect(jsonPath("$.uploaded").value(DEFAULT_UPLOADED.toString()));
+        webTestClient
+            .get()
+            .uri(ENTITY_API_URL_ID, photo.getId())
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .contentType(MediaType.APPLICATION_JSON)
+            .expectBody()
+            .jsonPath("$.id")
+            .value(is(photo.getId().intValue()))
+            .jsonPath("$.title")
+            .value(is(DEFAULT_TITLE))
+            .jsonPath("$.description")
+            .value(is(DEFAULT_DESCRIPTION.toString()))
+            .jsonPath("$.imageContentType")
+            .value(is(DEFAULT_IMAGE_CONTENT_TYPE))
+            .jsonPath("$.image")
+            .value(is(Base64Utils.encodeToString(DEFAULT_IMAGE)))
+            .jsonPath("$.height")
+            .value(is(DEFAULT_HEIGHT))
+            .jsonPath("$.width")
+            .value(is(DEFAULT_WIDTH))
+            .jsonPath("$.taken")
+            .value(is(DEFAULT_TAKEN.toString()))
+            .jsonPath("$.uploaded")
+            .value(is(DEFAULT_UPLOADED.toString()));
     }
 
     @Test
-    @Transactional
-    void getNonExistingPhoto() throws Exception {
+    void getNonExistingPhoto() {
         // Get the photo
-        restPhotoMockMvc.perform(get(ENTITY_API_URL_ID, Long.MAX_VALUE)).andExpect(status().isNotFound());
+        webTestClient
+            .get()
+            .uri(ENTITY_API_URL_ID, Long.MAX_VALUE)
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isNotFound();
     }
 
     @Test
-    @Transactional
     void putNewPhoto() throws Exception {
         // Initialize the database
-        photoRepository.saveAndFlush(photo);
+        photoRepository.save(photo).block();
 
-        int databaseSizeBeforeUpdate = photoRepository.findAll().size();
+        int databaseSizeBeforeUpdate = photoRepository.findAll().collectList().block().size();
 
         // Update the photo
-        Photo updatedPhoto = photoRepository.findById(photo.getId()).get();
-        // Disconnect from session so that the updates on updatedPhoto are not directly saved in db
-        em.detach(updatedPhoto);
+        Photo updatedPhoto = photoRepository.findById(photo.getId()).block();
         updatedPhoto
             .title(UPDATED_TITLE)
             .description(UPDATED_DESCRIPTION)
@@ -282,17 +340,17 @@ class PhotoResourceIT {
             .taken(UPDATED_TAKEN)
             .uploaded(UPDATED_UPLOADED);
 
-        restPhotoMockMvc
-            .perform(
-                put(ENTITY_API_URL_ID, updatedPhoto.getId())
-                    .with(csrf())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(updatedPhoto))
-            )
-            .andExpect(status().isOk());
+        webTestClient
+            .put()
+            .uri(ENTITY_API_URL_ID, updatedPhoto.getId())
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(updatedPhoto))
+            .exchange()
+            .expectStatus()
+            .isOk();
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeUpdate);
         Photo testPhoto = photoList.get(photoList.size() - 1);
         assertThat(testPhoto.getTitle()).isEqualTo(UPDATED_TITLE);
@@ -306,72 +364,71 @@ class PhotoResourceIT {
     }
 
     @Test
-    @Transactional
     void putNonExistingPhoto() throws Exception {
-        int databaseSizeBeforeUpdate = photoRepository.findAll().size();
+        int databaseSizeBeforeUpdate = photoRepository.findAll().collectList().block().size();
         photo.setId(count.incrementAndGet());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
-        restPhotoMockMvc
-            .perform(
-                put(ENTITY_API_URL_ID, photo.getId())
-                    .with(csrf())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(photo))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .put()
+            .uri(ENTITY_API_URL_ID, photo.getId())
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(photo))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void putWithIdMismatchPhoto() throws Exception {
-        int databaseSizeBeforeUpdate = photoRepository.findAll().size();
+        int databaseSizeBeforeUpdate = photoRepository.findAll().collectList().block().size();
         photo.setId(count.incrementAndGet());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restPhotoMockMvc
-            .perform(
-                put(ENTITY_API_URL_ID, count.incrementAndGet())
-                    .with(csrf())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(photo))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .put()
+            .uri(ENTITY_API_URL_ID, count.incrementAndGet())
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(photo))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void putWithMissingIdPathParamPhoto() throws Exception {
-        int databaseSizeBeforeUpdate = photoRepository.findAll().size();
+        int databaseSizeBeforeUpdate = photoRepository.findAll().collectList().block().size();
         photo.setId(count.incrementAndGet());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restPhotoMockMvc
-            .perform(
-                put(ENTITY_API_URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(photo))
-            )
-            .andExpect(status().isMethodNotAllowed());
+        webTestClient
+            .put()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(photo))
+            .exchange()
+            .expectStatus()
+            .isEqualTo(405);
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void partialUpdatePhotoWithPatch() throws Exception {
         // Initialize the database
-        photoRepository.saveAndFlush(photo);
+        photoRepository.save(photo).block();
 
-        int databaseSizeBeforeUpdate = photoRepository.findAll().size();
+        int databaseSizeBeforeUpdate = photoRepository.findAll().collectList().block().size();
 
         // Update the photo using partial update
         Photo partialUpdatedPhoto = new Photo();
@@ -384,17 +441,17 @@ class PhotoResourceIT {
             .height(UPDATED_HEIGHT)
             .taken(UPDATED_TAKEN);
 
-        restPhotoMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, partialUpdatedPhoto.getId())
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedPhoto))
-            )
-            .andExpect(status().isOk());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL_ID, partialUpdatedPhoto.getId())
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(partialUpdatedPhoto))
+            .exchange()
+            .expectStatus()
+            .isOk();
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeUpdate);
         Photo testPhoto = photoList.get(photoList.size() - 1);
         assertThat(testPhoto.getTitle()).isEqualTo(UPDATED_TITLE);
@@ -408,12 +465,11 @@ class PhotoResourceIT {
     }
 
     @Test
-    @Transactional
     void fullUpdatePhotoWithPatch() throws Exception {
         // Initialize the database
-        photoRepository.saveAndFlush(photo);
+        photoRepository.save(photo).block();
 
-        int databaseSizeBeforeUpdate = photoRepository.findAll().size();
+        int databaseSizeBeforeUpdate = photoRepository.findAll().collectList().block().size();
 
         // Update the photo using partial update
         Photo partialUpdatedPhoto = new Photo();
@@ -429,17 +485,17 @@ class PhotoResourceIT {
             .taken(UPDATED_TAKEN)
             .uploaded(UPDATED_UPLOADED);
 
-        restPhotoMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, partialUpdatedPhoto.getId())
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedPhoto))
-            )
-            .andExpect(status().isOk());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL_ID, partialUpdatedPhoto.getId())
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(partialUpdatedPhoto))
+            .exchange()
+            .expectStatus()
+            .isOk();
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeUpdate);
         Photo testPhoto = photoList.get(photoList.size() - 1);
         assertThat(testPhoto.getTitle()).isEqualTo(UPDATED_TITLE);
@@ -453,83 +509,83 @@ class PhotoResourceIT {
     }
 
     @Test
-    @Transactional
     void patchNonExistingPhoto() throws Exception {
-        int databaseSizeBeforeUpdate = photoRepository.findAll().size();
+        int databaseSizeBeforeUpdate = photoRepository.findAll().collectList().block().size();
         photo.setId(count.incrementAndGet());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
-        restPhotoMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, photo.getId())
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(photo))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL_ID, photo.getId())
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(photo))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void patchWithIdMismatchPhoto() throws Exception {
-        int databaseSizeBeforeUpdate = photoRepository.findAll().size();
+        int databaseSizeBeforeUpdate = photoRepository.findAll().collectList().block().size();
         photo.setId(count.incrementAndGet());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restPhotoMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, count.incrementAndGet())
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(photo))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL_ID, count.incrementAndGet())
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(photo))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void patchWithMissingIdPathParamPhoto() throws Exception {
-        int databaseSizeBeforeUpdate = photoRepository.findAll().size();
+        int databaseSizeBeforeUpdate = photoRepository.findAll().collectList().block().size();
         photo.setId(count.incrementAndGet());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restPhotoMockMvc
-            .perform(
-                patch(ENTITY_API_URL)
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(photo))
-            )
-            .andExpect(status().isMethodNotAllowed());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(photo))
+            .exchange()
+            .expectStatus()
+            .isEqualTo(405);
 
         // Validate the Photo in the database
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
-    void deletePhoto() throws Exception {
+    void deletePhoto() {
         // Initialize the database
-        photoRepository.saveAndFlush(photo);
+        photoRepository.save(photo).block();
 
-        int databaseSizeBeforeDelete = photoRepository.findAll().size();
+        int databaseSizeBeforeDelete = photoRepository.findAll().collectList().block().size();
 
         // Delete the photo
-        restPhotoMockMvc
-            .perform(delete(ENTITY_API_URL_ID, photo.getId()).with(csrf()).accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isNoContent());
+        webTestClient
+            .delete()
+            .uri(ENTITY_API_URL_ID, photo.getId())
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isNoContent();
 
         // Validate the database contains one less item
-        List<Photo> photoList = photoRepository.findAll();
+        List<Photo> photoList = photoRepository.findAll().collectList().block();
         assertThat(photoList).hasSize(databaseSizeBeforeDelete - 1);
     }
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import InfiniteScroll from 'react-infinite-scroll-component';
 import { Link, RouteComponentProps } from 'react-router-dom';
 import { Button, Table } from 'reactstrap';
@@ -6,12 +6,11 @@ import { openFile, byteSize, Translate, TextFormat, getSortState } from 'react-j
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 import { getEntities, reset } from './photo.reducer';
-import { APP_DATE_FORMAT } from 'app/config/constants';
-import { ASC, DESC, ITEMS_PER_PAGE } from 'app/shared/util/pagination.constants';
+import { IPhoto } from 'app/shared/model/photo.model';
+import { APP_DATE_FORMAT, APP_LOCAL_DATE_FORMAT } from 'app/config/constants';
+import { ASC, DESC, ITEMS_PER_PAGE, SORT } from 'app/shared/util/pagination.constants';
 import { overridePaginationStateWithQueryParams } from 'app/shared/util/entity-utils';
 import { useAppDispatch, useAppSelector } from 'app/config/store';
-import Gallery from 'react-photo-gallery';
-import Carousel, { Modal, ModalGateway } from 'react-images';
 
 export const Photo = (props: RouteComponentProps<{ url: string }>) => {
   const dispatch = useAppDispatch();
@@ -20,19 +19,6 @@ export const Photo = (props: RouteComponentProps<{ url: string }>) => {
     overridePaginationStateWithQueryParams(getSortState(props.location, ITEMS_PER_PAGE, 'id'), props.location.search)
   );
   const [sorting, setSorting] = useState(false);
-
-  const [currentImage, setCurrentImage] = useState(0);
-  const [viewerIsOpen, setViewerIsOpen] = useState(false);
-
-  const openLightbox = useCallback((event, { photo, index }) => {
-    setCurrentImage(index);
-    setViewerIsOpen(true);
-  }, []);
-
-  const closeLightbox = () => {
-    setCurrentImage(0);
-    setViewerIsOpen(false);
-  };
 
   const photoList = useAppSelector(state => state.photo.entities);
   const loading = useAppSelector(state => state.photo.loading);
@@ -106,12 +92,6 @@ export const Photo = (props: RouteComponentProps<{ url: string }>) => {
   };
 
   const { match } = props;
-  const photoSet = photoList.map(photo => ({
-    src: `data:${photo.imageContentType};base64,${photo.image}`,
-    width: photo.height > photo.width ? 3 : photo.height === photo.width ? 1 : 4,
-    height: photo.height > photo.width ? 4 : photo.height === photo.width ? 1 : 3,
-    title: photo.title,
-  }));
 
   return (
     <div>
@@ -129,21 +109,6 @@ export const Photo = (props: RouteComponentProps<{ url: string }>) => {
           </Link>
         </div>
       </h2>
-      <Gallery photos={photoSet} onClick={openLightbox} />
-      <ModalGateway>
-        {viewerIsOpen ? (
-          <Modal onClose={closeLightbox}>
-            <Carousel
-              currentIndex={currentImage}
-              views={photoSet.map(x => ({
-                ...x,
-                source: x.src,
-                caption: x.title,
-              }))}
-            />
-          </Modal>
-        ) : null}
-      </ModalGateway>
       <div className="table-responsive">
         <InfiniteScroll
           dataLength={photoList ? photoList.length : 0}

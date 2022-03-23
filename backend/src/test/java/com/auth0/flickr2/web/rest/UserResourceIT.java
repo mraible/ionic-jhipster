@@ -1,15 +1,14 @@
 package com.auth0.flickr2.web.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.hasItems;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.csrf;
 
 import com.auth0.flickr2.IntegrationTest;
+import com.auth0.flickr2.config.Constants;
 import com.auth0.flickr2.domain.Authority;
 import com.auth0.flickr2.domain.User;
+import com.auth0.flickr2.repository.AuthorityRepository;
+import com.auth0.flickr2.repository.EntityManager;
 import com.auth0.flickr2.repository.UserRepository;
 import com.auth0.flickr2.security.AuthoritiesConstants;
 import com.auth0.flickr2.service.dto.AdminUserDTO;
@@ -18,22 +17,20 @@ import com.auth0.flickr2.service.mapper.UserMapper;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Consumer;
-import javax.persistence.EntityManager;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.cache.CacheManager;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
  * Integration tests for the {@link UserResource} REST controller.
  */
-@AutoConfigureMockMvc
+@AutoConfigureWebTestClient(timeout = IntegrationTest.DEFAULT_TIMEOUT)
 @WithMockUser(authorities = AuthoritiesConstants.ADMIN)
 @IntegrationTest
 class UserResourceIT {
@@ -56,6 +53,9 @@ class UserResourceIT {
     private UserRepository userRepository;
 
     @Autowired
+    private AuthorityRepository authorityRepository;
+
+    @Autowired
     private UserMapper userMapper;
 
     @Autowired
@@ -65,7 +65,7 @@ class UserResourceIT {
     private CacheManager cacheManager;
 
     @Autowired
-    private MockMvc restUserMockMvc;
+    private WebTestClient webTestClient;
 
     private User user;
 
@@ -73,6 +73,11 @@ class UserResourceIT {
     public void setup() {
         cacheManager.getCache(UserRepository.USERS_BY_LOGIN_CACHE).clear();
         cacheManager.getCache(UserRepository.USERS_BY_EMAIL_CACHE).clear();
+    }
+
+    @BeforeEach
+    public void setupCsrf() {
+        webTestClient = webTestClient.mutateWith(csrf());
     }
 
     /**
@@ -91,13 +96,28 @@ class UserResourceIT {
         user.setLastName(DEFAULT_LASTNAME);
         user.setImageUrl(DEFAULT_IMAGEURL);
         user.setLangKey(DEFAULT_LANGKEY);
+        user.setCreatedBy(Constants.SYSTEM);
         return user;
+    }
+
+    /**
+     * Delete all the users from the database.
+     */
+    public static void deleteEntities(EntityManager em) {
+        try {
+            em.deleteAll("jhi_user_authority").block();
+            em.deleteAll(User.class).block();
+        } catch (Exception e) {
+            // It can fail, if other entities are still referring this - it will be removed later.
+        }
     }
 
     /**
      * Setups the database with one user.
      */
     public static User initTestUser(UserRepository userRepository, EntityManager em) {
+        userRepository.deleteAllUserAuthorities().block();
+        userRepository.deleteAll().block();
         User user = createEntity(em);
         user.setLogin(DEFAULT_LOGIN);
         user.setEmail(DEFAULT_EMAIL);
@@ -107,54 +127,6 @@ class UserResourceIT {
     @BeforeEach
     public void initTest() {
         user = initTestUser(userRepository, em);
-    }
-
-    @Test
-    @Transactional
-    void getAllUsers() throws Exception {
-        // Initialize the database
-        userRepository.saveAndFlush(user);
-
-        // Get all the users
-        restUserMockMvc
-            .perform(get("/api/admin/users?sort=id,desc").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].login").value(hasItem(DEFAULT_LOGIN)))
-            .andExpect(jsonPath("$.[*].firstName").value(hasItem(DEFAULT_FIRSTNAME)))
-            .andExpect(jsonPath("$.[*].lastName").value(hasItem(DEFAULT_LASTNAME)))
-            .andExpect(jsonPath("$.[*].email").value(hasItem(DEFAULT_EMAIL)))
-            .andExpect(jsonPath("$.[*].imageUrl").value(hasItem(DEFAULT_IMAGEURL)))
-            .andExpect(jsonPath("$.[*].langKey").value(hasItem(DEFAULT_LANGKEY)));
-    }
-
-    @Test
-    @Transactional
-    void getUser() throws Exception {
-        // Initialize the database
-        userRepository.saveAndFlush(user);
-
-        assertThat(cacheManager.getCache(UserRepository.USERS_BY_LOGIN_CACHE).get(user.getLogin())).isNull();
-
-        // Get the user
-        restUserMockMvc
-            .perform(get("/api/admin/users/{login}", user.getLogin()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.login").value(user.getLogin()))
-            .andExpect(jsonPath("$.firstName").value(DEFAULT_FIRSTNAME))
-            .andExpect(jsonPath("$.lastName").value(DEFAULT_LASTNAME))
-            .andExpect(jsonPath("$.email").value(DEFAULT_EMAIL))
-            .andExpect(jsonPath("$.imageUrl").value(DEFAULT_IMAGEURL))
-            .andExpect(jsonPath("$.langKey").value(DEFAULT_LANGKEY));
-
-        assertThat(cacheManager.getCache(UserRepository.USERS_BY_LOGIN_CACHE).get(user.getLogin())).isNotNull();
-    }
-
-    @Test
-    @Transactional
-    void getNonExistingUser() throws Exception {
-        restUserMockMvc.perform(get("/api/admin/users/unknown")).andExpect(status().isNotFound());
     }
 
     @Test
@@ -254,6 +226,6 @@ class UserResourceIT {
     }
 
     private void assertPersistedUsers(Consumer<List<User>> userAssertion) {
-        userAssertion.accept(userRepository.findAll());
+        userAssertion.accept(userRepository.findAll().collectList().block());
     }
 }

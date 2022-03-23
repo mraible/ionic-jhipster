@@ -1,83 +1,105 @@
 package com.auth0.flickr2.web.rest;
 
 import static com.auth0.flickr2.test.util.OAuth2TestUtil.TEST_USER_LOGIN;
+import static com.auth0.flickr2.test.util.OAuth2TestUtil.authenticationToken;
 import static com.auth0.flickr2.test.util.OAuth2TestUtil.registerAuthenticationToken;
-import static com.auth0.flickr2.test.util.OAuth2TestUtil.testAuthenticationToken;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.*;
 
 import com.auth0.flickr2.IntegrationTest;
 import com.auth0.flickr2.security.AuthoritiesConstants;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.http.MediaType;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.ReactiveOAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
-import org.springframework.security.test.context.TestSecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
  * Integration tests for the {@link AccountResource} REST controller.
  */
-@AutoConfigureMockMvc
+@AutoConfigureWebTestClient(timeout = IntegrationTest.DEFAULT_TIMEOUT)
 @WithMockUser(value = TEST_USER_LOGIN)
 @IntegrationTest
 class AccountResourceIT {
 
-    @Autowired
-    private MockMvc restAccountMockMvc;
+    private Map<String, Object> claims;
 
     @Autowired
-    OAuth2AuthorizedClientService authorizedClientService;
+    private WebTestClient webTestClient;
 
     @Autowired
-    ClientRegistration clientRegistration;
+    private ReactiveOAuth2AuthorizedClientService authorizedClientService;
 
-    @Test
-    @Transactional
-    void testGetExistingAccount() throws Exception {
-        TestSecurityContextHolder
-            .getContext()
-            .setAuthentication(registerAuthenticationToken(authorizedClientService, clientRegistration, testAuthenticationToken()));
+    @Autowired
+    private ClientRegistration clientRegistration;
 
-        restAccountMockMvc
-            .perform(get("/api/account").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.login").value(TEST_USER_LOGIN))
-            .andExpect(jsonPath("$.email").value("john.doe@jhipster.com"))
-            .andExpect(jsonPath("$.authorities").value(AuthoritiesConstants.ADMIN));
+    @BeforeEach
+    public void setup() {
+        claims = new HashMap<>();
+        claims.put("groups", Collections.singletonList(AuthoritiesConstants.ADMIN));
+        claims.put("sub", "jane");
+        claims.put("email", "jane.doe@jhipster.com");
     }
 
     @Test
-    void testGetUnknownAccount() throws Exception {
-        restAccountMockMvc.perform(get("/api/account").accept(MediaType.APPLICATION_JSON)).andExpect(status().isInternalServerError());
+    void testGetExistingAccount() {
+        webTestClient
+            .mutateWith(
+                mockAuthentication(registerAuthenticationToken(authorizedClientService, clientRegistration, authenticationToken(claims)))
+            )
+            .mutateWith(csrf())
+            .get()
+            .uri("/api/account")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .contentType(MediaType.APPLICATION_JSON_VALUE)
+            .expectBody()
+            .jsonPath("$.login")
+            .isEqualTo("jane")
+            .jsonPath("$.email")
+            .isEqualTo("jane.doe@jhipster.com")
+            .jsonPath("$.authorities")
+            .isEqualTo(AuthoritiesConstants.ADMIN);
+    }
+
+    @Test
+    void testGetUnknownAccount() {
+        webTestClient.get().uri("/api/account").accept(MediaType.APPLICATION_JSON).exchange().expectStatus().is5xxServerError();
     }
 
     @Test
     @WithUnauthenticatedMockUser
-    void testNonAuthenticatedUser() throws Exception {
-        restAccountMockMvc
-            .perform(get("/api/authenticate").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(content().string(""));
+    void testNonAuthenticatedUser() {
+        webTestClient
+            .get()
+            .uri("/api/authenticate")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectBody()
+            .isEmpty();
     }
 
     @Test
-    void testAuthenticatedUser() throws Exception {
-        restAccountMockMvc
-            .perform(
-                get("/api/authenticate")
-                    .with(request -> {
-                        request.setRemoteUser(TEST_USER_LOGIN);
-                        return request;
-                    })
-                    .accept(MediaType.APPLICATION_JSON)
-            )
-            .andExpect(status().isOk())
-            .andExpect(content().string(TEST_USER_LOGIN));
+    void testAuthenticatedUser() {
+        webTestClient
+            .get()
+            .uri("/api/authenticate")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectBody(String.class)
+            .isEqualTo(TEST_USER_LOGIN);
     }
 }

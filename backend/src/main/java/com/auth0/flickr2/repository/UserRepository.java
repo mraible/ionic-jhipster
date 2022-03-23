@@ -32,6 +32,10 @@ import reactor.util.function.Tuples;
  */
 @Repository
 public interface UserRepository extends R2dbcRepository<User, String>, UserRepositoryInternal {
+    String USERS_BY_LOGIN_CACHE = "usersByLogin";
+
+    String USERS_BY_EMAIL_CACHE = "usersByEmail";
+
     Mono<User> findOneByLogin(String login);
 
     Flux<User> findAllByIdNotNull(Pageable pageable);

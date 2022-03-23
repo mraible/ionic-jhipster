@@ -5,66 +5,60 @@ import java.io.Serializable;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
-import javax.persistence.*;
 import javax.validation.constraints.*;
-import org.hibernate.annotations.Cache;
-import org.hibernate.annotations.CacheConcurrencyStrategy;
-import org.hibernate.annotations.Type;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
 /**
  * A Photo.
  */
-@Entity
-@Table(name = "photo")
-@Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+@Table("photo")
 public class Photo implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "sequenceGenerator")
-    @SequenceGenerator(name = "sequenceGenerator")
-    @Column(name = "id")
+    @Column("id")
     private Long id;
 
-    @NotNull
-    @Column(name = "title", nullable = false)
+    @NotNull(message = "must not be null")
+    @Column("title")
     private String title;
 
-    @Lob
-    @Type(type = "org.hibernate.type.TextType")
-    @Column(name = "description")
+    @Column("description")
     private String description;
 
-    @Lob
-    @Column(name = "image", nullable = false)
+    @Column("image")
     private byte[] image;
 
     @NotNull
-    @Column(name = "image_content_type", nullable = false)
+    @Column("image_content_type")
     private String imageContentType;
 
-    @Column(name = "height")
+    @Column("height")
     private Integer height;
 
-    @Column(name = "width")
+    @Column("width")
     private Integer width;
 
-    @Column(name = "taken")
+    @Column("taken")
     private Instant taken;
 
-    @Column(name = "uploaded")
+    @Column("uploaded")
     private Instant uploaded;
 
-    @ManyToOne
+    @Transient
     @JsonIgnoreProperties(value = { "user" }, allowSetters = true)
     private Album album;
 
-    @ManyToMany
-    @JoinTable(name = "rel_photo__tag", joinColumns = @JoinColumn(name = "photo_id"), inverseJoinColumns = @JoinColumn(name = "tag_id"))
-    @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+    @Transient
     @JsonIgnoreProperties(value = { "photos" }, allowSetters = true)
     private Set<Tag> tags = new HashSet<>();
+
+    @Column("album_id")
+    private Long albumId;
 
     // jhipster-needle-entity-add-field - JHipster will add fields here
 
@@ -191,6 +185,7 @@ public class Photo implements Serializable {
 
     public void setAlbum(Album album) {
         this.album = album;
+        this.albumId = album != null ? album.getId() : null;
     }
 
     public Photo album(Album album) {
@@ -221,6 +216,14 @@ public class Photo implements Serializable {
         this.tags.remove(tag);
         tag.getPhotos().remove(this);
         return this;
+    }
+
+    public Long getAlbumId() {
+        return this.albumId;
+    }
+
+    public void setAlbumId(Long album) {
+        this.albumId = album;
     }
 
     // jhipster-needle-entity-add-getters-setters - JHipster will add getters and setters here

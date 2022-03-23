@@ -3,27 +3,27 @@ package com.auth0.flickr2.config;
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProviderBuilder;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizedClientManager;
-import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.client.ReactiveOAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.ReactiveOAuth2AuthorizedClientProviderBuilder;
+import org.springframework.security.oauth2.client.registration.ReactiveClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.DefaultReactiveOAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.web.server.ServerOAuth2AuthorizedClientRepository;
 
 @Configuration
 public class OAuth2Configuration {
 
     @Bean
-    public OAuth2AuthorizedClientManager authorizedClientManager(
-        ClientRegistrationRepository clientRegistrationRepository,
-        OAuth2AuthorizedClientRepository authorizedClientRepository
+    public ReactiveOAuth2AuthorizedClientManager authorizedClientManager(
+        ReactiveClientRegistrationRepository clientRegistrationRepository,
+        ServerOAuth2AuthorizedClientRepository authorizedClientRepository
     ) {
-        DefaultOAuth2AuthorizedClientManager authorizedClientManager = new DefaultOAuth2AuthorizedClientManager(
+        DefaultReactiveOAuth2AuthorizedClientManager authorizedClientManager = new DefaultReactiveOAuth2AuthorizedClientManager(
             clientRegistrationRepository,
             authorizedClientRepository
         );
 
         authorizedClientManager.setAuthorizedClientProvider(
-            OAuth2AuthorizedClientProviderBuilder
+            ReactiveOAuth2AuthorizedClientProviderBuilder
                 .builder()
                 .authorizationCode()
                 .refreshToken(builder -> builder.clockSkew(Duration.ofMinutes(1)))

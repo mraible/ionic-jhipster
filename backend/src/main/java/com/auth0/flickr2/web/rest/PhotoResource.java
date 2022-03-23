@@ -3,40 +3,34 @@ package com.auth0.flickr2.web.rest;
 import com.auth0.flickr2.domain.Photo;
 import com.auth0.flickr2.repository.PhotoRepository;
 import com.auth0.flickr2.web.rest.errors.BadRequestAlertException;
-import com.drew.imaging.ImageMetadataReader;
-import com.drew.imaging.ImageProcessingException;
-import com.drew.metadata.Metadata;
-import com.drew.metadata.MetadataException;
-import com.drew.metadata.exif.ExifSubIFDDirectory;
-import com.drew.metadata.jpeg.JpegDirectory;
-import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.time.Instant;
-import java.util.Date;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import javax.validation.Valid;
 import javax.validation.constraints.NotNull;
-import javax.xml.bind.DatatypeConverter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriComponentsBuilder;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import tech.jhipster.web.util.HeaderUtil;
 import tech.jhipster.web.util.PaginationUtil;
-import tech.jhipster.web.util.ResponseUtil;
+import tech.jhipster.web.util.reactive.ResponseUtil;
 
 /**
  * REST controller for managing {@link com.auth0.flickr2.domain.Photo}.
@@ -67,54 +61,23 @@ public class PhotoResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PostMapping("/photos")
-    public ResponseEntity<Photo> createPhoto(@Valid @RequestBody Photo photo) throws Exception {
+    public Mono<ResponseEntity<Photo>> createPhoto(@Valid @RequestBody Photo photo) throws URISyntaxException {
         log.debug("REST request to save Photo : {}", photo);
         if (photo.getId() != null) {
             throw new BadRequestAlertException("A new photo cannot already have an ID", ENTITY_NAME, "idexists");
         }
-
-        try {
-            photo = setMetadata(photo);
-        } catch (ImageProcessingException ipe) {
-            log.error(ipe.getMessage());
-        }
-
-        Photo result = photoRepository.save(photo);
-        return ResponseEntity
-            .created(new URI("/api/photos/" + result.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, true, ENTITY_NAME, result.getId().toString()))
-            .body(result);
-    }
-
-    private Photo setMetadata(Photo photo) throws ImageProcessingException, IOException, MetadataException {
-        String str = DatatypeConverter.printBase64Binary(photo.getImage());
-        byte[] data2 = DatatypeConverter.parseBase64Binary(str);
-        InputStream inputStream = new ByteArrayInputStream(data2);
-        BufferedInputStream bis = new BufferedInputStream(inputStream);
-        Metadata metadata = ImageMetadataReader.readMetadata(bis);
-        ExifSubIFDDirectory directory = metadata.getFirstDirectoryOfType(ExifSubIFDDirectory.class);
-
-        if (directory != null) {
-            Date date = directory.getDateDigitized();
-            if (date != null) {
-                photo.setTaken(date.toInstant());
-            }
-        }
-
-        if (photo.getTaken() == null) {
-            log.debug("Photo EXIF date digitized not available, setting taken on date to now...");
-            photo.setTaken(Instant.now());
-        }
-
-        photo.setUploaded(Instant.now());
-
-        JpegDirectory jpgDirectory = metadata.getFirstDirectoryOfType(JpegDirectory.class);
-        if (jpgDirectory != null) {
-            photo.setHeight(jpgDirectory.getImageHeight());
-            photo.setWidth(jpgDirectory.getImageWidth());
-        }
-
-        return photo;
+        return photoRepository
+            .save(photo)
+            .map(result -> {
+                try {
+                    return ResponseEntity
+                        .created(new URI("/api/photos/" + result.getId()))
+                        .headers(HeaderUtil.createEntityCreationAlert(applicationName, true, ENTITY_NAME, result.getId().toString()))
+                        .body(result);
+                } catch (URISyntaxException e) {
+                    throw new RuntimeException(e);
+                }
+            });
     }
 
     /**
@@ -128,8 +91,10 @@ public class PhotoResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/photos/{id}")
-    public ResponseEntity<Photo> updatePhoto(@PathVariable(value = "id", required = false) final Long id, @Valid @RequestBody Photo photo)
-        throws URISyntaxException {
+    public Mono<ResponseEntity<Photo>> updatePhoto(
+        @PathVariable(value = "id", required = false) final Long id,
+        @Valid @RequestBody Photo photo
+    ) throws URISyntaxException {
         log.debug("REST request to update Photo : {}, {}", id, photo);
         if (photo.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
@@ -138,15 +103,23 @@ public class PhotoResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!photoRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        return photoRepository
+            .existsById(id)
+            .flatMap(exists -> {
+                if (!exists) {
+                    return Mono.error(new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+                }
 
-        Photo result = photoRepository.save(photo);
-        return ResponseEntity
-            .ok()
-            .headers(HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, photo.getId().toString()))
-            .body(result);
+                return photoRepository
+                    .save(photo)
+                    .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                    .map(result ->
+                        ResponseEntity
+                            .ok()
+                            .headers(HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, result.getId().toString()))
+                            .body(result)
+                    );
+            });
     }
 
     /**
@@ -161,7 +134,7 @@ public class PhotoResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/photos/{id}", consumes = { "application/json", "application/merge-patch+json" })
-    public ResponseEntity<Photo> partialUpdatePhoto(
+    public Mono<ResponseEntity<Photo>> partialUpdatePhoto(
         @PathVariable(value = "id", required = false) final Long id,
         @NotNull @RequestBody Photo photo
     ) throws URISyntaxException {
@@ -173,69 +146,85 @@ public class PhotoResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!photoRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
-
-        Optional<Photo> result = photoRepository
-            .findById(photo.getId())
-            .map(existingPhoto -> {
-                if (photo.getTitle() != null) {
-                    existingPhoto.setTitle(photo.getTitle());
-                }
-                if (photo.getDescription() != null) {
-                    existingPhoto.setDescription(photo.getDescription());
-                }
-                if (photo.getImage() != null) {
-                    existingPhoto.setImage(photo.getImage());
-                }
-                if (photo.getImageContentType() != null) {
-                    existingPhoto.setImageContentType(photo.getImageContentType());
-                }
-                if (photo.getHeight() != null) {
-                    existingPhoto.setHeight(photo.getHeight());
-                }
-                if (photo.getWidth() != null) {
-                    existingPhoto.setWidth(photo.getWidth());
-                }
-                if (photo.getTaken() != null) {
-                    existingPhoto.setTaken(photo.getTaken());
-                }
-                if (photo.getUploaded() != null) {
-                    existingPhoto.setUploaded(photo.getUploaded());
+        return photoRepository
+            .existsById(id)
+            .flatMap(exists -> {
+                if (!exists) {
+                    return Mono.error(new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
                 }
 
-                return existingPhoto;
-            })
-            .map(photoRepository::save);
+                Mono<Photo> result = photoRepository
+                    .findById(photo.getId())
+                    .map(existingPhoto -> {
+                        if (photo.getTitle() != null) {
+                            existingPhoto.setTitle(photo.getTitle());
+                        }
+                        if (photo.getDescription() != null) {
+                            existingPhoto.setDescription(photo.getDescription());
+                        }
+                        if (photo.getImage() != null) {
+                            existingPhoto.setImage(photo.getImage());
+                        }
+                        if (photo.getImageContentType() != null) {
+                            existingPhoto.setImageContentType(photo.getImageContentType());
+                        }
+                        if (photo.getHeight() != null) {
+                            existingPhoto.setHeight(photo.getHeight());
+                        }
+                        if (photo.getWidth() != null) {
+                            existingPhoto.setWidth(photo.getWidth());
+                        }
+                        if (photo.getTaken() != null) {
+                            existingPhoto.setTaken(photo.getTaken());
+                        }
+                        if (photo.getUploaded() != null) {
+                            existingPhoto.setUploaded(photo.getUploaded());
+                        }
 
-        return ResponseUtil.wrapOrNotFound(
-            result,
-            HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, photo.getId().toString())
-        );
+                        return existingPhoto;
+                    })
+                    .flatMap(photoRepository::save);
+
+                return result
+                    .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                    .map(res ->
+                        ResponseEntity
+                            .ok()
+                            .headers(HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, res.getId().toString()))
+                            .body(res)
+                    );
+            });
     }
 
     /**
      * {@code GET  /photos} : get all the photos.
      *
      * @param pageable the pagination information.
+     * @param request a {@link ServerHttpRequest} request.
      * @param eagerload flag to eager load entities from relationships (This is applicable for many-to-many).
      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of photos in body.
      */
     @GetMapping("/photos")
-    public ResponseEntity<List<Photo>> getAllPhotos(
-        Pageable pageable,
-        @RequestParam(required = false, defaultValue = "false") boolean eagerload
+    public Mono<ResponseEntity<List<Photo>>> getAllPhotos(
+        @org.springdoc.api.annotations.ParameterObject Pageable pageable,
+        ServerHttpRequest request,
+        @RequestParam(required = false, defaultValue = "true") boolean eagerload
     ) {
         log.debug("REST request to get a page of Photos");
-        Page<Photo> page;
-        if (eagerload) {
-            page = photoRepository.findAllWithEagerRelationships(pageable);
-        } else {
-            page = photoRepository.findAll(pageable);
-        }
-        HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
-        return ResponseEntity.ok().headers(headers).body(page.getContent());
+        return photoRepository
+            .count()
+            .zipWith(photoRepository.findAllBy(pageable).collectList())
+            .map(countWithEntities ->
+                ResponseEntity
+                    .ok()
+                    .headers(
+                        PaginationUtil.generatePaginationHttpHeaders(
+                            UriComponentsBuilder.fromHttpRequest(request),
+                            new PageImpl<>(countWithEntities.getT2(), pageable, countWithEntities.getT1())
+                        )
+                    )
+                    .body(countWithEntities.getT2())
+            );
     }
 
     /**
@@ -245,9 +234,9 @@ public class PhotoResource {
      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and with body the photo, or with status {@code 404 (Not Found)}.
      */
     @GetMapping("/photos/{id}")
-    public ResponseEntity<Photo> getPhoto(@PathVariable Long id) {
+    public Mono<ResponseEntity<Photo>> getPhoto(@PathVariable Long id) {
         log.debug("REST request to get Photo : {}", id);
-        Optional<Photo> photo = photoRepository.findOneWithEagerRelationships(id);
+        Mono<Photo> photo = photoRepository.findOneWithEagerRelationships(id);
         return ResponseUtil.wrapOrNotFound(photo);
     }
 
@@ -258,12 +247,16 @@ public class PhotoResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/photos/{id}")
-    public ResponseEntity<Void> deletePhoto(@PathVariable Long id) {
+    @ResponseStatus(code = HttpStatus.NO_CONTENT)
+    public Mono<ResponseEntity<Void>> deletePhoto(@PathVariable Long id) {
         log.debug("REST request to delete Photo : {}", id);
-        photoRepository.deleteById(id);
-        return ResponseEntity
-            .noContent()
-            .headers(HeaderUtil.createEntityDeletionAlert(applicationName, true, ENTITY_NAME, id.toString()))
-            .build();
+        return photoRepository
+            .deleteById(id)
+            .map(result ->
+                ResponseEntity
+                    .noContent()
+                    .headers(HeaderUtil.createEntityDeletionAlert(applicationName, true, ENTITY_NAME, id.toString()))
+                    .build()
+            );
     }
 }

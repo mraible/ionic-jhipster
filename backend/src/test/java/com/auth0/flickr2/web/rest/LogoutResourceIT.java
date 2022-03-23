@@ -3,8 +3,7 @@ package com.auth0.flickr2.web.rest;
 import static com.auth0.flickr2.test.util.OAuth2TestUtil.ID_TOKEN;
 import static com.auth0.flickr2.test.util.OAuth2TestUtil.authenticationToken;
 import static com.auth0.flickr2.test.util.OAuth2TestUtil.registerAuthenticationToken;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.*;
 
 import com.auth0.flickr2.IntegrationTest;
 import com.auth0.flickr2.security.AuthoritiesConstants;
@@ -14,16 +13,13 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.ReactiveOAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
+import org.springframework.security.oauth2.client.registration.ReactiveClientRegistrationRepository;
+import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
  * Integration tests for the {@link LogoutResource} REST controller.
@@ -32,50 +28,52 @@ import org.springframework.web.context.WebApplicationContext;
 class LogoutResourceIT {
 
     @Autowired
-    private ClientRegistrationRepository registrations;
+    private ReactiveClientRegistrationRepository registrations;
 
     @Autowired
-    private WebApplicationContext context;
+    private ApplicationContext context;
 
     @Autowired
-    private OAuth2AuthorizedClientService authorizedClientService;
+    private ReactiveOAuth2AuthorizedClientService authorizedClientService;
 
     @Autowired
     private ClientRegistration clientRegistration;
 
-    private MockMvc restLogoutMockMvc;
+    private WebTestClient webTestClient;
 
     private Map<String, Object> claims;
 
     @BeforeEach
-    public void before() throws Exception {
+    public void before() {
         claims = new HashMap<>();
         claims.put("groups", Collections.singletonList(AuthoritiesConstants.USER));
         claims.put("sub", 123);
 
-        SecurityContextHolder
-            .getContext()
-            .setAuthentication(registerAuthenticationToken(authorizedClientService, clientRegistration, authenticationToken(claims)));
-        SecurityContextHolderAwareRequestFilter authInjector = new SecurityContextHolderAwareRequestFilter();
-        authInjector.afterPropertiesSet();
-
-        this.restLogoutMockMvc = MockMvcBuilders.webAppContextSetup(this.context).build();
+        this.webTestClient = WebTestClient.bindToApplicationContext(this.context).apply(springSecurity()).configureClient().build();
     }
 
     @Test
-    void getLogoutInformation() throws Exception {
+    void getLogoutInformation() {
         final String ORIGIN_URL = "http://localhost:8080";
         String logoutUrl =
             this.registrations.findByRegistrationId("oidc")
-                .getProviderDetails()
-                .getConfigurationMetadata()
-                .get("end_session_endpoint")
-                .toString();
+                .map(oidc -> oidc.getProviderDetails().getConfigurationMetadata().get("end_session_endpoint").toString())
+                .block();
         logoutUrl = logoutUrl + "?id_token_hint=" + ID_TOKEN + "&post_logout_redirect_uri=" + ORIGIN_URL;
-        restLogoutMockMvc
-            .perform(post("http://localhost:8080/api/logout").header(HttpHeaders.ORIGIN, ORIGIN_URL))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.logoutUrl").value(logoutUrl));
+        this.webTestClient.mutateWith(csrf())
+            .mutateWith(
+                mockAuthentication(registerAuthenticationToken(authorizedClientService, clientRegistration, authenticationToken(claims)))
+            )
+            .post()
+            .uri("http://localhost:8080/api/logout")
+            .header(HttpHeaders.ORIGIN, ORIGIN_URL)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .contentType(MediaType.APPLICATION_JSON_VALUE)
+            .expectBody()
+            .jsonPath("$.logoutUrl")
+            .isEqualTo(logoutUrl);
     }
 }

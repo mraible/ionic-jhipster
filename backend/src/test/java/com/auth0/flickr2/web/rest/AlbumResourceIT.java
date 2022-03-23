@@ -2,34 +2,37 @@ package com.auth0.flickr2.web.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.hamcrest.Matchers.is;
+import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.csrf;
 
 import com.auth0.flickr2.IntegrationTest;
 import com.auth0.flickr2.domain.Album;
 import com.auth0.flickr2.repository.AlbumRepository;
+import com.auth0.flickr2.repository.EntityManager;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
-import javax.persistence.EntityManager;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.util.Base64Utils;
 
 /**
  * Integration tests for the {@link AlbumResource} REST controller.
  */
 @IntegrationTest
-@AutoConfigureMockMvc
+@AutoConfigureWebTestClient(timeout = IntegrationTest.DEFAULT_ENTITY_TIMEOUT)
 @WithMockUser
 class AlbumResourceIT {
 
@@ -55,7 +58,7 @@ class AlbumResourceIT {
     private EntityManager em;
 
     @Autowired
-    private MockMvc restAlbumMockMvc;
+    private WebTestClient webTestClient;
 
     private Album album;
 
@@ -81,24 +84,45 @@ class AlbumResourceIT {
         return album;
     }
 
+    public static void deleteEntities(EntityManager em) {
+        try {
+            em.deleteAll(Album.class).block();
+        } catch (Exception e) {
+            // It can fail, if other entities are still referring this - it will be removed later.
+        }
+    }
+
+    @AfterEach
+    public void cleanup() {
+        deleteEntities(em);
+    }
+
+    @BeforeEach
+    public void setupCsrf() {
+        webTestClient = webTestClient.mutateWith(csrf());
+    }
+
     @BeforeEach
     public void initTest() {
+        deleteEntities(em);
         album = createEntity(em);
     }
 
     @Test
-    @Transactional
     void createAlbum() throws Exception {
-        int databaseSizeBeforeCreate = albumRepository.findAll().size();
+        int databaseSizeBeforeCreate = albumRepository.findAll().collectList().block().size();
         // Create the Album
-        restAlbumMockMvc
-            .perform(
-                post(ENTITY_API_URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(album))
-            )
-            .andExpect(status().isCreated());
+        webTestClient
+            .post()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(album))
+            .exchange()
+            .expectStatus()
+            .isCreated();
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeCreate + 1);
         Album testAlbum = albumList.get(albumList.size() - 1);
         assertThat(testAlbum.getTitle()).isEqualTo(DEFAULT_TITLE);
@@ -107,110 +131,134 @@ class AlbumResourceIT {
     }
 
     @Test
-    @Transactional
     void createAlbumWithExistingId() throws Exception {
         // Create the Album with an existing ID
         album.setId(1L);
 
-        int databaseSizeBeforeCreate = albumRepository.findAll().size();
+        int databaseSizeBeforeCreate = albumRepository.findAll().collectList().block().size();
 
         // An entity with an existing ID cannot be created, so this API call must fail
-        restAlbumMockMvc
-            .perform(
-                post(ENTITY_API_URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(album))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .post()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(album))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeCreate);
     }
 
     @Test
-    @Transactional
     void checkTitleIsRequired() throws Exception {
-        int databaseSizeBeforeTest = albumRepository.findAll().size();
+        int databaseSizeBeforeTest = albumRepository.findAll().collectList().block().size();
         // set the field null
         album.setTitle(null);
 
         // Create the Album, which fails.
 
-        restAlbumMockMvc
-            .perform(
-                post(ENTITY_API_URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(album))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .post()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(album))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeTest);
     }
 
     @Test
-    @Transactional
-    void getAllAlbums() throws Exception {
+    void getAllAlbums() {
         // Initialize the database
-        albumRepository.saveAndFlush(album);
+        albumRepository.save(album).block();
 
         // Get all the albumList
-        restAlbumMockMvc
-            .perform(get(ENTITY_API_URL + "?sort=id,desc"))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(album.getId().intValue())))
-            .andExpect(jsonPath("$.[*].title").value(hasItem(DEFAULT_TITLE)))
-            .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION.toString())))
-            .andExpect(jsonPath("$.[*].created").value(hasItem(DEFAULT_CREATED.toString())));
+        webTestClient
+            .get()
+            .uri(ENTITY_API_URL + "?sort=id,desc")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .contentType(MediaType.APPLICATION_JSON)
+            .expectBody()
+            .jsonPath("$.[*].id")
+            .value(hasItem(album.getId().intValue()))
+            .jsonPath("$.[*].title")
+            .value(hasItem(DEFAULT_TITLE))
+            .jsonPath("$.[*].description")
+            .value(hasItem(DEFAULT_DESCRIPTION.toString()))
+            .jsonPath("$.[*].created")
+            .value(hasItem(DEFAULT_CREATED.toString()));
     }
 
     @Test
-    @Transactional
-    void getAlbum() throws Exception {
+    void getAlbum() {
         // Initialize the database
-        albumRepository.saveAndFlush(album);
+        albumRepository.save(album).block();
 
         // Get the album
-        restAlbumMockMvc
-            .perform(get(ENTITY_API_URL_ID, album.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.id").value(album.getId().intValue()))
-            .andExpect(jsonPath("$.title").value(DEFAULT_TITLE))
-            .andExpect(jsonPath("$.description").value(DEFAULT_DESCRIPTION.toString()))
-            .andExpect(jsonPath("$.created").value(DEFAULT_CREATED.toString()));
+        webTestClient
+            .get()
+            .uri(ENTITY_API_URL_ID, album.getId())
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .contentType(MediaType.APPLICATION_JSON)
+            .expectBody()
+            .jsonPath("$.id")
+            .value(is(album.getId().intValue()))
+            .jsonPath("$.title")
+            .value(is(DEFAULT_TITLE))
+            .jsonPath("$.description")
+            .value(is(DEFAULT_DESCRIPTION.toString()))
+            .jsonPath("$.created")
+            .value(is(DEFAULT_CREATED.toString()));
     }
 
     @Test
-    @Transactional
-    void getNonExistingAlbum() throws Exception {
+    void getNonExistingAlbum() {
         // Get the album
-        restAlbumMockMvc.perform(get(ENTITY_API_URL_ID, Long.MAX_VALUE)).andExpect(status().isNotFound());
+        webTestClient
+            .get()
+            .uri(ENTITY_API_URL_ID, Long.MAX_VALUE)
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isNotFound();
     }
 
     @Test
-    @Transactional
     void putNewAlbum() throws Exception {
         // Initialize the database
-        albumRepository.saveAndFlush(album);
+        albumRepository.save(album).block();
 
-        int databaseSizeBeforeUpdate = albumRepository.findAll().size();
+        int databaseSizeBeforeUpdate = albumRepository.findAll().collectList().block().size();
 
         // Update the album
-        Album updatedAlbum = albumRepository.findById(album.getId()).get();
-        // Disconnect from session so that the updates on updatedAlbum are not directly saved in db
-        em.detach(updatedAlbum);
+        Album updatedAlbum = albumRepository.findById(album.getId()).block();
         updatedAlbum.title(UPDATED_TITLE).description(UPDATED_DESCRIPTION).created(UPDATED_CREATED);
 
-        restAlbumMockMvc
-            .perform(
-                put(ENTITY_API_URL_ID, updatedAlbum.getId())
-                    .with(csrf())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(updatedAlbum))
-            )
-            .andExpect(status().isOk());
+        webTestClient
+            .put()
+            .uri(ENTITY_API_URL_ID, updatedAlbum.getId())
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(updatedAlbum))
+            .exchange()
+            .expectStatus()
+            .isOk();
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeUpdate);
         Album testAlbum = albumList.get(albumList.size() - 1);
         assertThat(testAlbum.getTitle()).isEqualTo(UPDATED_TITLE);
@@ -219,72 +267,71 @@ class AlbumResourceIT {
     }
 
     @Test
-    @Transactional
     void putNonExistingAlbum() throws Exception {
-        int databaseSizeBeforeUpdate = albumRepository.findAll().size();
+        int databaseSizeBeforeUpdate = albumRepository.findAll().collectList().block().size();
         album.setId(count.incrementAndGet());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
-        restAlbumMockMvc
-            .perform(
-                put(ENTITY_API_URL_ID, album.getId())
-                    .with(csrf())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(album))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .put()
+            .uri(ENTITY_API_URL_ID, album.getId())
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(album))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void putWithIdMismatchAlbum() throws Exception {
-        int databaseSizeBeforeUpdate = albumRepository.findAll().size();
+        int databaseSizeBeforeUpdate = albumRepository.findAll().collectList().block().size();
         album.setId(count.incrementAndGet());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restAlbumMockMvc
-            .perform(
-                put(ENTITY_API_URL_ID, count.incrementAndGet())
-                    .with(csrf())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(album))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .put()
+            .uri(ENTITY_API_URL_ID, count.incrementAndGet())
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(album))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void putWithMissingIdPathParamAlbum() throws Exception {
-        int databaseSizeBeforeUpdate = albumRepository.findAll().size();
+        int databaseSizeBeforeUpdate = albumRepository.findAll().collectList().block().size();
         album.setId(count.incrementAndGet());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restAlbumMockMvc
-            .perform(
-                put(ENTITY_API_URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(album))
-            )
-            .andExpect(status().isMethodNotAllowed());
+        webTestClient
+            .put()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(TestUtil.convertObjectToJsonBytes(album))
+            .exchange()
+            .expectStatus()
+            .isEqualTo(405);
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void partialUpdateAlbumWithPatch() throws Exception {
         // Initialize the database
-        albumRepository.saveAndFlush(album);
+        albumRepository.save(album).block();
 
-        int databaseSizeBeforeUpdate = albumRepository.findAll().size();
+        int databaseSizeBeforeUpdate = albumRepository.findAll().collectList().block().size();
 
         // Update the album using partial update
         Album partialUpdatedAlbum = new Album();
@@ -292,17 +339,17 @@ class AlbumResourceIT {
 
         partialUpdatedAlbum.description(UPDATED_DESCRIPTION).created(UPDATED_CREATED);
 
-        restAlbumMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, partialUpdatedAlbum.getId())
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedAlbum))
-            )
-            .andExpect(status().isOk());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL_ID, partialUpdatedAlbum.getId())
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(partialUpdatedAlbum))
+            .exchange()
+            .expectStatus()
+            .isOk();
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeUpdate);
         Album testAlbum = albumList.get(albumList.size() - 1);
         assertThat(testAlbum.getTitle()).isEqualTo(DEFAULT_TITLE);
@@ -311,12 +358,11 @@ class AlbumResourceIT {
     }
 
     @Test
-    @Transactional
     void fullUpdateAlbumWithPatch() throws Exception {
         // Initialize the database
-        albumRepository.saveAndFlush(album);
+        albumRepository.save(album).block();
 
-        int databaseSizeBeforeUpdate = albumRepository.findAll().size();
+        int databaseSizeBeforeUpdate = albumRepository.findAll().collectList().block().size();
 
         // Update the album using partial update
         Album partialUpdatedAlbum = new Album();
@@ -324,17 +370,17 @@ class AlbumResourceIT {
 
         partialUpdatedAlbum.title(UPDATED_TITLE).description(UPDATED_DESCRIPTION).created(UPDATED_CREATED);
 
-        restAlbumMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, partialUpdatedAlbum.getId())
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedAlbum))
-            )
-            .andExpect(status().isOk());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL_ID, partialUpdatedAlbum.getId())
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(partialUpdatedAlbum))
+            .exchange()
+            .expectStatus()
+            .isOk();
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeUpdate);
         Album testAlbum = albumList.get(albumList.size() - 1);
         assertThat(testAlbum.getTitle()).isEqualTo(UPDATED_TITLE);
@@ -343,83 +389,83 @@ class AlbumResourceIT {
     }
 
     @Test
-    @Transactional
     void patchNonExistingAlbum() throws Exception {
-        int databaseSizeBeforeUpdate = albumRepository.findAll().size();
+        int databaseSizeBeforeUpdate = albumRepository.findAll().collectList().block().size();
         album.setId(count.incrementAndGet());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
-        restAlbumMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, album.getId())
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(album))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL_ID, album.getId())
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(album))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void patchWithIdMismatchAlbum() throws Exception {
-        int databaseSizeBeforeUpdate = albumRepository.findAll().size();
+        int databaseSizeBeforeUpdate = albumRepository.findAll().collectList().block().size();
         album.setId(count.incrementAndGet());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restAlbumMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, count.incrementAndGet())
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(album))
-            )
-            .andExpect(status().isBadRequest());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL_ID, count.incrementAndGet())
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(album))
+            .exchange()
+            .expectStatus()
+            .isBadRequest();
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
     void patchWithMissingIdPathParamAlbum() throws Exception {
-        int databaseSizeBeforeUpdate = albumRepository.findAll().size();
+        int databaseSizeBeforeUpdate = albumRepository.findAll().collectList().block().size();
         album.setId(count.incrementAndGet());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restAlbumMockMvc
-            .perform(
-                patch(ENTITY_API_URL)
-                    .with(csrf())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(album))
-            )
-            .andExpect(status().isMethodNotAllowed());
+        webTestClient
+            .patch()
+            .uri(ENTITY_API_URL)
+            .contentType(MediaType.valueOf("application/merge-patch+json"))
+            .bodyValue(TestUtil.convertObjectToJsonBytes(album))
+            .exchange()
+            .expectStatus()
+            .isEqualTo(405);
 
         // Validate the Album in the database
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
-    @Transactional
-    void deleteAlbum() throws Exception {
+    void deleteAlbum() {
         // Initialize the database
-        albumRepository.saveAndFlush(album);
+        albumRepository.save(album).block();
 
-        int databaseSizeBeforeDelete = albumRepository.findAll().size();
+        int databaseSizeBeforeDelete = albumRepository.findAll().collectList().block().size();
 
         // Delete the album
-        restAlbumMockMvc
-            .perform(delete(ENTITY_API_URL_ID, album.getId()).with(csrf()).accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isNoContent());
+        webTestClient
+            .delete()
+            .uri(ENTITY_API_URL_ID, album.getId())
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus()
+            .isNoContent();
 
         // Validate the database contains one less item
-        List<Album> albumList = albumRepository.findAll();
+        List<Album> albumList = albumRepository.findAll().collectList().block();
         assertThat(albumList).hasSize(databaseSizeBeforeDelete - 1);
     }
 }

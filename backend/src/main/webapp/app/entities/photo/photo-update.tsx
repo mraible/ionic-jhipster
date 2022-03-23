@@ -1,11 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, RouteComponentProps } from 'react-router-dom';
-import { Button, Col, Row } from 'reactstrap';
-import { Translate, translate, ValidatedBlobField, ValidatedField, ValidatedForm } from 'react-jhipster';
+import { Button, Row, Col, FormText } from 'reactstrap';
+import { isNumber, Translate, translate, ValidatedField, ValidatedForm, ValidatedBlobField } from 'react-jhipster';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+
+import { IAlbum } from 'app/shared/model/album.model';
 import { getEntities as getAlbums } from 'app/entities/album/album.reducer';
+import { ITag } from 'app/shared/model/tag.model';
 import { getEntities as getTags } from 'app/entities/tag/tag.reducer';
-import { createEntity, getEntity, updateEntity } from './photo.reducer';
+import { getEntity, updateEntity, createEntity, reset } from './photo.reducer';
+import { IPhoto } from 'app/shared/model/photo.model';
 import { convertDateTimeFromServer, convertDateTimeToServer, displayDefaultDateTime } from 'app/shared/util/date-utils';
 import { mapIdList } from 'app/shared/util/entity-utils';
 import { useAppDispatch, useAppSelector } from 'app/config/store';
@@ -72,30 +76,6 @@ export const PhotoUpdate = (props: RouteComponentProps<{ id: string }>) => {
           tags: photoEntity?.tags?.map(e => e.id.toString()),
         };
 
-  const metadata = (
-    <div>
-      <ValidatedField label={translate('flickr2App.photo.height')} id="photo-height" name="height" data-cy="height" type="text" />
-      <ValidatedField label={translate('flickr2App.photo.width')} id="photo-width" name="width" data-cy="width" type="text" />
-      <ValidatedField
-        label={translate('flickr2App.photo.taken')}
-        id="photo-taken"
-        name="taken"
-        data-cy="taken"
-        type="datetime-local"
-        placeholder="YYYY-MM-DD HH:mm"
-      />
-      <ValidatedField
-        label={translate('flickr2App.photo.uploaded')}
-        id="photo-uploaded"
-        name="uploaded"
-        data-cy="uploaded"
-        type="datetime-local"
-        placeholder="YYYY-MM-DD HH:mm"
-      />
-    </div>
-  );
-  const metadataRows = isNew ? '' : metadata;
-
   return (
     <div>
       <Row className="justify-content-center">
@@ -149,8 +129,25 @@ export const PhotoUpdate = (props: RouteComponentProps<{ id: string }>) => {
                   required: { value: true, message: translate('entity.validation.required') },
                 }}
               />
-              {metadataRows}
-              <ValidatedField id="photo-album" name="albumId" data-cy="album" label={translate('flickr2App.photo.album')} type="select">
+              <ValidatedField label={translate('flickr2App.photo.height')} id="photo-height" name="height" data-cy="height" type="text" />
+              <ValidatedField label={translate('flickr2App.photo.width')} id="photo-width" name="width" data-cy="width" type="text" />
+              <ValidatedField
+                label={translate('flickr2App.photo.taken')}
+                id="photo-taken"
+                name="taken"
+                data-cy="taken"
+                type="datetime-local"
+                placeholder="YYYY-MM-DD HH:mm"
+              />
+              <ValidatedField
+                label={translate('flickr2App.photo.uploaded')}
+                id="photo-uploaded"
+                name="uploaded"
+                data-cy="uploaded"
+                type="datetime-local"
+                placeholder="YYYY-MM-DD HH:mm"
+              />
+              <ValidatedField id="photo-album" name="album" data-cy="album" label={translate('flickr2App.photo.album')} type="select">
                 <option value="" key="0" />
                 {albums
                   ? albums.map(otherEntity => (

@@ -8,10 +8,12 @@ import com.auth0.flickr2.security.oauth2.AudienceValidator;
 import com.auth0.flickr2.security.oauth2.JwtGrantedAuthorityConverter;
 import com.auth0.flickr2.web.filter.SpaWebFilter;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
@@ -22,6 +24,8 @@ import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcReactiveOAuth2UserService;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ReactiveClientRegistrationRepository;
 import org.springframework.security.oauth2.client.userinfo.ReactiveOAuth2UserService;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
@@ -38,6 +42,7 @@ import org.springframework.security.web.server.header.ReferrerPolicyServerHttpHe
 import org.springframework.security.web.server.header.XFrameOptionsServerHttpHeadersWriter.Mode;
 import org.springframework.security.web.server.util.matcher.NegatedServerWebExchangeMatcher;
 import org.springframework.security.web.server.util.matcher.OrServerWebExchangeMatcher;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.zalando.problem.spring.webflux.advice.security.SecurityProblemSupport;
 import reactor.core.publisher.Mono;
 import tech.jhipster.config.JHipsterProperties;
@@ -50,14 +55,15 @@ public class SecurityConfiguration {
 
     private final JHipsterProperties jHipsterProperties;
 
-    @Value("${spring.security.oauth2.client.provider.oidc.issuer-uri}")
-    private String issuerUri;
+    private final Mono<ClientRegistration> clientRegistration;
 
     private final SecurityProblemSupport problemSupport;
 
-    public SecurityConfiguration(JHipsterProperties jHipsterProperties, SecurityProblemSupport problemSupport) {
+    public SecurityConfiguration(JHipsterProperties jHipsterProperties, SecurityProblemSupport problemSupport,
+                                 ReactiveClientRegistrationRepository registrations) {
         this.jHipsterProperties = jHipsterProperties;
         this.problemSupport = problemSupport;
+        this.clientRegistration = registrations.findByRegistrationId("oidc");
     }
 
     @Bean
@@ -102,7 +108,7 @@ public class SecurityConfiguration {
             .pathMatchers("/management/**").hasAuthority(AuthoritiesConstants.ADMIN);
 
         http.oauth2Login()
-            .and()            
+            .and()
             .oauth2ResourceServer()
                 .jwt()
                 .jwtAuthenticationConverter(jwtAuthenticationConverter());
@@ -151,14 +157,41 @@ public class SecurityConfiguration {
 
     @Bean
     ReactiveJwtDecoder jwtDecoder() {
-        NimbusReactiveJwtDecoder jwtDecoder = (NimbusReactiveJwtDecoder) ReactiveJwtDecoders.fromOidcIssuerLocation(issuerUri);
+        String issuerUri = clientRegistration.map(oidc -> oidc.getProviderDetails().getIssuerUri()).toString();
+        String userInfoUri = clientRegistration.map(oidc -> oidc.getProviderDetails().getUserInfoEndpoint()).toString();
 
+        NimbusReactiveJwtDecoder jwtDecoder = new NimbusReactiveJwtDecoder(issuerUri);
         OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(jHipsterProperties.getSecurity().getOauth2().getAudience());
         OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(issuerUri);
         OAuth2TokenValidator<Jwt> withAudience = new DelegatingOAuth2TokenValidator<>(withIssuer, audienceValidator);
 
         jwtDecoder.setJwtValidator(withAudience);
 
-        return jwtDecoder;
+        return new ReactiveJwtDecoder() {
+            @Override
+            public Mono<Jwt> decode(String token) throws JwtException {
+                return jwtDecoder.decode(token)
+                    .flatMap(jwt -> enrich(token, jwt));
+            }
+
+            private Mono<Jwt> enrich(String token, Jwt jwt) {
+                WebClient webClient = WebClient.create();
+
+                return webClient.get()
+                    .uri(userInfoUri)
+                    .headers(headers -> headers.setBearerAuth(token))
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String,String>>() {})
+                    .map(userInfo ->
+                        Jwt.withTokenValue(jwt.getTokenValue())
+                            .subject(jwt.getSubject())
+                            .audience(jwt.getAudience())
+                            .headers(headers -> headers.putAll(jwt.getHeaders()))
+                            .claims(claims -> claims.putAll(userInfo))
+                            .claims(claims -> claims.putAll(jwt.getClaims()))
+                            .build()
+                    );
+            }
+        };
     }
 }

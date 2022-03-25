@@ -157,11 +157,17 @@ public class SecurityConfiguration {
 
     @Bean
     ReactiveJwtDecoder jwtDecoder() {
-        String issuerUri = clientRegistration.map(oidc -> oidc.getProviderDetails().getIssuerUri()).toString();
-        String userInfoUri = clientRegistration.map(oidc -> oidc.getProviderDetails().getUserInfoEndpoint()).toString();
+        return clientRegistration.map(oidc -> createJwtDecoder(
+            oidc.getProviderDetails().getIssuerUri(),
+            oidc.getProviderDetails().getJwkSetUri(),
+            oidc.getProviderDetails().getUserInfoEndpoint().getUri()
+        )).block();
+    }
 
-        NimbusReactiveJwtDecoder jwtDecoder = new NimbusReactiveJwtDecoder(issuerUri);
-        OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(jHipsterProperties.getSecurity().getOauth2().getAudience());
+    private ReactiveJwtDecoder createJwtDecoder(String issuerUri, String jwkSetUri, String userInfoUri) {
+        NimbusReactiveJwtDecoder jwtDecoder = new NimbusReactiveJwtDecoder(jwkSetUri);
+        OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(
+            jHipsterProperties.getSecurity().getOauth2().getAudience());
         OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(issuerUri);
         OAuth2TokenValidator<Jwt> withAudience = new DelegatingOAuth2TokenValidator<>(withIssuer, audienceValidator);
 
@@ -181,7 +187,8 @@ public class SecurityConfiguration {
                     .uri(userInfoUri)
                     .headers(headers -> headers.setBearerAuth(token))
                     .retrieve()
-                    .bodyToMono(new ParameterizedTypeReference<Map<String,String>>() {})
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, String>>() {
+                    })
                     .map(userInfo ->
                         Jwt.withTokenValue(jwt.getTokenValue())
                             .subject(jwt.getSubject())
@@ -195,3 +202,4 @@ public class SecurityConfiguration {
         };
     }
 }
+

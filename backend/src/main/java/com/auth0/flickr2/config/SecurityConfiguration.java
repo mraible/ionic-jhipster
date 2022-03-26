@@ -7,6 +7,8 @@ import com.auth0.flickr2.security.SecurityUtils;
 import com.auth0.flickr2.security.oauth2.AudienceValidator;
 import com.auth0.flickr2.security.oauth2.JwtGrantedAuthorityConverter;
 import com.auth0.flickr2.web.filter.SpaWebFilter;
+
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -187,14 +189,31 @@ public class SecurityConfiguration {
                     .uri(userInfoUri)
                     .headers(headers -> headers.setBearerAuth(token))
                     .retrieve()
-                    .bodyToMono(new ParameterizedTypeReference<Map<String, String>>() {
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {
                     })
                     .map(userInfo ->
                         Jwt.withTokenValue(jwt.getTokenValue())
                             .subject(jwt.getSubject())
                             .audience(jwt.getAudience())
                             .headers(headers -> headers.putAll(jwt.getHeaders()))
-                            .claims(claims -> claims.putAll(userInfo))
+                            .claims(claims -> {
+                                System.out.println("userInfo" + userInfo);
+                                String username = userInfo.get("preferred_username").toString();
+                                // special handling for Auth0
+                                if (userInfo.get("sub").toString().contains("|") && username.contains("@")) {
+                                    userInfo.put("email", username);
+                                }
+                                // Allow full name in a name claim - happens with Auth0
+                                if (userInfo.get("name") != null) {
+                                    String[] name = userInfo.get("name").toString().split("\\s+");
+                                    if (name.length > 0) {
+                                        userInfo.put("given_name", name[0]);
+                                        userInfo.put("family_name",
+                                            String.join(" ", Arrays.copyOfRange(name, 1, name.length)));
+                                    }
+                                }
+                                claims.putAll(userInfo);
+                            })
                             .claims(claims -> claims.putAll(jwt.getClaims()))
                             .build()
                     );

@@ -7,12 +7,15 @@ import com.auth0.flickr2.security.SecurityUtils;
 import com.auth0.flickr2.security.oauth2.AudienceValidator;
 import com.auth0.flickr2.security.oauth2.JwtGrantedAuthorityConverter;
 import com.auth0.flickr2.web.filter.SpaWebFilter;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
@@ -23,6 +26,7 @@ import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcReactiveOAuth2UserService;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ReactiveClientRegistrationRepository;
 import org.springframework.security.oauth2.client.userinfo.ReactiveOAuth2UserService;
 import org.springframework.security.oauth2.client.web.server.DefaultServerOAuth2AuthorizationRequestResolver;
@@ -184,14 +188,68 @@ public class SecurityConfiguration {
 
     @Bean
     ReactiveJwtDecoder jwtDecoder() {
-        NimbusReactiveJwtDecoder jwtDecoder = (NimbusReactiveJwtDecoder) ReactiveJwtDecoders.fromOidcIssuerLocation(issuerUri);
+        Mono<ClientRegistration> clientRegistration = registrations.findByRegistrationId("oidc");
 
+        return clientRegistration
+            .map(oidc ->
+                createJwtDecoder(
+                    oidc.getProviderDetails().getIssuerUri(),
+                    oidc.getProviderDetails().getJwkSetUri(),
+                    oidc.getProviderDetails().getUserInfoEndpoint().getUri()
+                )
+            )
+            .block();
+    }
+
+    private ReactiveJwtDecoder createJwtDecoder(String issuerUri, String jwkSetUri, String userInfoUri) {
+        NimbusReactiveJwtDecoder jwtDecoder = new NimbusReactiveJwtDecoder(jwkSetUri);
         OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(jHipsterProperties.getSecurity().getOauth2().getAudience());
         OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(issuerUri);
         OAuth2TokenValidator<Jwt> withAudience = new DelegatingOAuth2TokenValidator<>(withIssuer, audienceValidator);
 
         jwtDecoder.setJwtValidator(withAudience);
 
-        return jwtDecoder;
+        return new ReactiveJwtDecoder() {
+            @Override
+            public Mono<Jwt> decode(String token) throws JwtException {
+                return jwtDecoder.decode(token).flatMap(jwt -> enrich(token, jwt));
+            }
+
+            private Mono<Jwt> enrich(String token, Jwt jwt) {
+                WebClient webClient = WebClient.create();
+
+                return webClient
+                    .get()
+                    .uri(userInfoUri)
+                    .headers(headers -> headers.setBearerAuth(token))
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .map(userInfo ->
+                        Jwt
+                            .withTokenValue(jwt.getTokenValue())
+                            .subject(jwt.getSubject())
+                            .audience(jwt.getAudience())
+                            .headers(headers -> headers.putAll(jwt.getHeaders()))
+                            .claims(claims -> {
+                                String username = userInfo.get("preferred_username").toString();
+                                // special handling for Auth0
+                                if (userInfo.get("sub").toString().contains("|") && username.contains("@")) {
+                                    userInfo.put("email", username);
+                                }
+                                // Allow full name in a name claim - happens with Auth0
+                                if (userInfo.get("name") != null) {
+                                    String[] name = userInfo.get("name").toString().split("\\s+");
+                                    if (name.length > 0) {
+                                        userInfo.put("given_name", name[0]);
+                                        userInfo.put("family_name", String.join(" ", Arrays.copyOfRange(name, 1, name.length)));
+                                    }
+                                }
+                                claims.putAll(userInfo);
+                            })
+                            .claims(claims -> claims.putAll(jwt.getClaims()))
+                            .build()
+                    );
+            }
+        };
     }
 }

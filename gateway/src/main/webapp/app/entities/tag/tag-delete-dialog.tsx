@@ -16,8 +16,8 @@ export const TagDeleteDialog = (props: RouteComponentProps<{ id: string }>) => {
     setLoadModal(true);
   }, []);
 
-  const tagEntity = useAppSelector(state => state.flickr2.tag.entity);
-  const updateSuccess = useAppSelector(state => state.flickr2.tag.updateSuccess);
+  const tagEntity = useAppSelector(state => state.tag.entity);
+  const updateSuccess = useAppSelector(state => state.tag.updateSuccess);
 
   const handleClose = () => {
     props.history.push('/tag');

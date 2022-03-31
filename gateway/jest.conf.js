@@ -1,4 +1,4 @@
-const tsconfig = require('./tsconfig.test.json');
+const tsconfig = require('./tsconfig.json');
 
 module.exports = {
   testEnvironment: 'jsdom',

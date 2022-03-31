@@ -16,7 +16,7 @@
     "ecmaFeatures": {
       "jsx": true
     },
-    "project": "./tsconfig.test.json"
+    "project": "./tsconfig.json"
   },
   "settings": {
     "react": {

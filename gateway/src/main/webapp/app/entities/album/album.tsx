@@ -4,13 +4,12 @@ import { Button, Table } from 'reactstrap';
 import { byteSize, Translate, TextFormat, getSortState, JhiPagination, JhiItemCount } from 'react-jhipster';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
+import { getEntities } from './album.reducer';
+import { IAlbum } from 'app/shared/model/album.model';
 import { APP_DATE_FORMAT, APP_LOCAL_DATE_FORMAT } from 'app/config/constants';
 import { ASC, DESC, ITEMS_PER_PAGE, SORT } from 'app/shared/util/pagination.constants';
 import { overridePaginationStateWithQueryParams } from 'app/shared/util/entity-utils';
 import { useAppDispatch, useAppSelector } from 'app/config/store';
-
-import { IAlbum } from 'app/shared/model/album.model';
-import { getEntities } from './album.reducer';
 
 export const Album = (props: RouteComponentProps<{ url: string }>) => {
   const dispatch = useAppDispatch();
@@ -19,9 +18,9 @@ export const Album = (props: RouteComponentProps<{ url: string }>) => {
     overridePaginationStateWithQueryParams(getSortState(props.location, ITEMS_PER_PAGE, 'id'), props.location.search)
   );
 
-  const albumList = useAppSelector(state => state.flickr2.album.entities);
-  const loading = useAppSelector(state => state.flickr2.album.loading);
-  const totalItems = useAppSelector(state => state.flickr2.album.totalItems);
+  const albumList = useAppSelector(state => state.album.entities);
+  const loading = useAppSelector(state => state.album.loading);
+  const totalItems = useAppSelector(state => state.album.totalItems);
 
   const getAllEntities = () => {
     dispatch(
@@ -89,7 +88,7 @@ export const Album = (props: RouteComponentProps<{ url: string }>) => {
             <FontAwesomeIcon icon="sync" spin={loading} />{' '}
             <Translate contentKey="flickr2App.album.home.refreshListLabel">Refresh List</Translate>
           </Button>
-          <Link to="/album/new" className="btn btn-primary jh-create-entity" id="jh-create-entity" data-cy="entityCreateButton">
+          <Link to={`${match.url}/new`} className="btn btn-primary jh-create-entity" id="jh-create-entity" data-cy="entityCreateButton">
             <FontAwesomeIcon icon="plus" />
             &nbsp;
             <Translate contentKey="flickr2App.album.home.createLabel">Create new Album</Translate>
@@ -123,7 +122,7 @@ export const Album = (props: RouteComponentProps<{ url: string }>) => {
               {albumList.map((album, i) => (
                 <tr key={`entity-${i}`} data-cy="entityTable">
                   <td>
-                    <Button tag={Link} to={`/album/${album.id}`} color="link" size="sm">
+                    <Button tag={Link} to={`${match.url}/${album.id}`} color="link" size="sm">
                       {album.id}
                     </Button>
                   </td>
@@ -133,7 +132,7 @@ export const Album = (props: RouteComponentProps<{ url: string }>) => {
                   <td>{album.user ? album.user.login : ''}</td>
                   <td className="text-end">
                     <div className="btn-group flex-btn-group-container">
-                      <Button tag={Link} to={`/album/${album.id}`} color="info" size="sm" data-cy="entityDetailsButton">
+                      <Button tag={Link} to={`${match.url}/${album.id}`} color="info" size="sm" data-cy="entityDetailsButton">
                         <FontAwesomeIcon icon="eye" />{' '}
                         <span className="d-none d-md-inline">
                           <Translate contentKey="entity.action.view">View</Translate>
@@ -141,7 +140,7 @@ export const Album = (props: RouteComponentProps<{ url: string }>) => {
                       </Button>
                       <Button
                         tag={Link}
-                        to={`/album/${album.id}/edit?page=${paginationState.activePage}&sort=${paginationState.sort},${paginationState.order}`}
+                        to={`${match.url}/${album.id}/edit?page=${paginationState.activePage}&sort=${paginationState.sort},${paginationState.order}`}
                         color="primary"
                         size="sm"
                         data-cy="entityEditButton"
@@ -153,7 +152,7 @@ export const Album = (props: RouteComponentProps<{ url: string }>) => {
                       </Button>
                       <Button
                         tag={Link}
-                        to={`/album/${album.id}/delete?page=${paginationState.activePage}&sort=${paginationState.sort},${paginationState.order}`}
+                        to={`${match.url}/${album.id}/delete?page=${paginationState.activePage}&sort=${paginationState.sort},${paginationState.order}`}
                         color="danger"
                         size="sm"
                         data-cy="entityDeleteButton"

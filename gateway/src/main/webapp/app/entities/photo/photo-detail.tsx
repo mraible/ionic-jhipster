@@ -4,10 +4,9 @@ import { Button, Row, Col } from 'reactstrap';
 import { Translate, openFile, byteSize, TextFormat } from 'react-jhipster';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
+import { getEntity } from './photo.reducer';
 import { APP_DATE_FORMAT, APP_LOCAL_DATE_FORMAT } from 'app/config/constants';
 import { useAppDispatch, useAppSelector } from 'app/config/store';
-
-import { getEntity } from './photo.reducer';
 
 export const PhotoDetail = (props: RouteComponentProps<{ id: string }>) => {
   const dispatch = useAppDispatch();
@@ -16,7 +15,7 @@ export const PhotoDetail = (props: RouteComponentProps<{ id: string }>) => {
     dispatch(getEntity(props.match.params.id));
   }, []);
 
-  const photoEntity = useAppSelector(state => state.flickr2.photo.entity);
+  const photoEntity = useAppSelector(state => state.photo.entity);
   return (
     <Row>
       <Col md="8">

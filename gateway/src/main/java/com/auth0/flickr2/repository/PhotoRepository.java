@@ -32,7 +32,7 @@ public interface PhotoRepository extends ReactiveCrudRepository<Photo, Long>, Ph
     @Query("SELECT * FROM photo entity WHERE entity.album_id IS NULL")
     Flux<Photo> findAllWhereAlbumIsNull();
 
-    @Query("SELECT entity.* FROM photo entity JOIN rel_photo__tag joinTable ON entity.id = joinTable.tag_id WHERE joinTable.tag_id = :id")
+    @Query("SELECT entity.* FROM photo entity JOIN rel_photo__tag joinTable ON entity.id = joinTable.photo_id WHERE joinTable.tag_id = :id")
     Flux<Photo> findByTag(Long id);
 
     @Override

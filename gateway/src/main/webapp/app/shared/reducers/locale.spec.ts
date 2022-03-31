@@ -25,15 +25,7 @@ describe('Locale reducer tests', () => {
   it('should correctly detect update in current locale state', () => {
     TranslatorContext.setLocale('en');
     expect(TranslatorContext.context.locale).toEqual('en');
-    const localeState = locale(
-      {
-        currentLocale: 'en',
-        sourcePrefixes: [],
-        lastChange: new Date().getTime(),
-        loadedKeys: [],
-      },
-      updateLocale('es')
-    );
+    const localeState = locale({ currentLocale: 'en' }, updateLocale('es'));
     expect(localeState).toMatchObject({
       currentLocale: 'es',
     });
@@ -56,6 +48,8 @@ describe('Locale reducer tests', () => {
 
       await store.dispatch(setLocale(defaultLocale));
       expect(store.getActions()).toEqual(expectedActions);
+      expect(TranslatorContext.context.translations).toBeDefined();
+      expect(Object.keys(TranslatorContext.context.translations)).toContainEqual(defaultLocale);
     });
   });
 });

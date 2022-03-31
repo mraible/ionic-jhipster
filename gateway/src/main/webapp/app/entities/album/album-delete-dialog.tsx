@@ -16,8 +16,8 @@ export const AlbumDeleteDialog = (props: RouteComponentProps<{ id: string }>) =>
     setLoadModal(true);
   }, []);
 
-  const albumEntity = useAppSelector(state => state.flickr2.album.entity);
-  const updateSuccess = useAppSelector(state => state.flickr2.album.updateSuccess);
+  const albumEntity = useAppSelector(state => state.album.entity);
+  const updateSuccess = useAppSelector(state => state.album.updateSuccess);
 
   const handleClose = () => {
     props.history.push('/album' + props.location.search);

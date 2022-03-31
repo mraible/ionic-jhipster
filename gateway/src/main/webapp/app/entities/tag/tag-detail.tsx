@@ -4,10 +4,9 @@ import { Button, Row, Col } from 'reactstrap';
 import { Translate } from 'react-jhipster';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
+import { getEntity } from './tag.reducer';
 import { APP_DATE_FORMAT, APP_LOCAL_DATE_FORMAT } from 'app/config/constants';
 import { useAppDispatch, useAppSelector } from 'app/config/store';
-
-import { getEntity } from './tag.reducer';
 
 export const TagDetail = (props: RouteComponentProps<{ id: string }>) => {
   const dispatch = useAppDispatch();
@@ -16,7 +15,7 @@ export const TagDetail = (props: RouteComponentProps<{ id: string }>) => {
     dispatch(getEntity(props.match.params.id));
   }, []);
 
-  const tagEntity = useAppSelector(state => state.flickr2.tag.entity);
+  const tagEntity = useAppSelector(state => state.tag.entity);
   return (
     <Row>
       <Col md="8">

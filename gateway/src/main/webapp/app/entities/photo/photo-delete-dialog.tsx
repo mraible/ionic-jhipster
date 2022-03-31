@@ -16,8 +16,8 @@ export const PhotoDeleteDialog = (props: RouteComponentProps<{ id: string }>) =>
     setLoadModal(true);
   }, []);
 
-  const photoEntity = useAppSelector(state => state.photo.entity);
-  const updateSuccess = useAppSelector(state => state.photo.updateSuccess);
+  const photoEntity = useAppSelector(state => state.flickr2.photo.entity);
+  const updateSuccess = useAppSelector(state => state.flickr2.photo.updateSuccess);
 
   const handleClose = () => {
     props.history.push('/photo');

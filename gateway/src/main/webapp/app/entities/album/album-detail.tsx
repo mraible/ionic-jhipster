@@ -4,9 +4,10 @@ import { Button, Row, Col } from 'reactstrap';
 import { Translate, byteSize, TextFormat } from 'react-jhipster';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
-import { getEntity } from './album.reducer';
 import { APP_DATE_FORMAT, APP_LOCAL_DATE_FORMAT } from 'app/config/constants';
 import { useAppDispatch, useAppSelector } from 'app/config/store';
+
+import { getEntity } from './album.reducer';
 
 export const AlbumDetail = (props: RouteComponentProps<{ id: string }>) => {
   const dispatch = useAppDispatch();
@@ -15,7 +16,7 @@ export const AlbumDetail = (props: RouteComponentProps<{ id: string }>) => {
     dispatch(getEntity(props.match.params.id));
   }, []);
 
-  const albumEntity = useAppSelector(state => state.album.entity);
+  const albumEntity = useAppSelector(state => state.flickr2.album.entity);
   return (
     <Row>
       <Col md="8">

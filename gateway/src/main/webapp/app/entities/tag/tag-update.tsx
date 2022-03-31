@@ -4,24 +4,25 @@ import { Button, Row, Col, FormText } from 'reactstrap';
 import { isNumber, Translate, translate, ValidatedField, ValidatedForm } from 'react-jhipster';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
-import { IPhoto } from 'app/shared/model/photo.model';
-import { getEntities as getPhotos } from 'app/entities/photo/photo.reducer';
-import { getEntity, updateEntity, createEntity, reset } from './tag.reducer';
-import { ITag } from 'app/shared/model/tag.model';
 import { convertDateTimeFromServer, convertDateTimeToServer, displayDefaultDateTime } from 'app/shared/util/date-utils';
 import { mapIdList } from 'app/shared/util/entity-utils';
 import { useAppDispatch, useAppSelector } from 'app/config/store';
+
+import { IPhoto } from 'app/shared/model/photo.model';
+import { getEntities as getPhotos } from 'app/entities/photo/photo.reducer';
+import { ITag } from 'app/shared/model/tag.model';
+import { getEntity, updateEntity, createEntity, reset } from './tag.reducer';
 
 export const TagUpdate = (props: RouteComponentProps<{ id: string }>) => {
   const dispatch = useAppDispatch();
 
   const [isNew] = useState(!props.match.params || !props.match.params.id);
 
-  const photos = useAppSelector(state => state.photo.entities);
-  const tagEntity = useAppSelector(state => state.tag.entity);
-  const loading = useAppSelector(state => state.tag.loading);
-  const updating = useAppSelector(state => state.tag.updating);
-  const updateSuccess = useAppSelector(state => state.tag.updateSuccess);
+  const photos = useAppSelector(state => state.flickr2.photo.entities);
+  const tagEntity = useAppSelector(state => state.flickr2.tag.entity);
+  const loading = useAppSelector(state => state.flickr2.tag.loading);
+  const updating = useAppSelector(state => state.flickr2.tag.updating);
+  const updateSuccess = useAppSelector(state => state.flickr2.tag.updateSuccess);
   const handleClose = () => {
     props.history.push('/tag');
   };

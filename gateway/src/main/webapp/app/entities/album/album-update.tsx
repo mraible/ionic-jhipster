@@ -4,13 +4,14 @@ import { Button, Row, Col, FormText } from 'reactstrap';
 import { isNumber, Translate, translate, ValidatedField, ValidatedForm } from 'react-jhipster';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
-import { IUser } from 'app/shared/model/user.model';
-import { getUsers } from 'app/shared/reducers/user-management';
-import { getEntity, updateEntity, createEntity, reset } from './album.reducer';
-import { IAlbum } from 'app/shared/model/album.model';
 import { convertDateTimeFromServer, convertDateTimeToServer, displayDefaultDateTime } from 'app/shared/util/date-utils';
 import { mapIdList } from 'app/shared/util/entity-utils';
 import { useAppDispatch, useAppSelector } from 'app/config/store';
+
+import { IUser } from 'app/shared/model/user.model';
+import { getUsers } from 'app/shared/reducers/user-management';
+import { IAlbum } from 'app/shared/model/album.model';
+import { getEntity, updateEntity, createEntity, reset } from './album.reducer';
 
 export const AlbumUpdate = (props: RouteComponentProps<{ id: string }>) => {
   const dispatch = useAppDispatch();
@@ -18,10 +19,10 @@ export const AlbumUpdate = (props: RouteComponentProps<{ id: string }>) => {
   const [isNew] = useState(!props.match.params || !props.match.params.id);
 
   const users = useAppSelector(state => state.userManagement.users);
-  const albumEntity = useAppSelector(state => state.album.entity);
-  const loading = useAppSelector(state => state.album.loading);
-  const updating = useAppSelector(state => state.album.updating);
-  const updateSuccess = useAppSelector(state => state.album.updateSuccess);
+  const albumEntity = useAppSelector(state => state.flickr2.album.entity);
+  const loading = useAppSelector(state => state.flickr2.album.loading);
+  const updating = useAppSelector(state => state.flickr2.album.updating);
+  const updateSuccess = useAppSelector(state => state.flickr2.album.updateSuccess);
   const handleClose = () => {
     props.history.push('/album' + props.location.search);
   };
